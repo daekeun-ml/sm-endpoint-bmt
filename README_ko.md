@@ -156,17 +156,11 @@ uv run python sagemaker_benchmark.py \
 │   └── vllm_config.json                 # 실제 vLLM 설정
 ├── autoscaling/                         # Auto Scaling 관련 도구
 │   ├── autoscaling.py                   # Auto Scaling 설정 스크립트
-│   ├── test_autoscaling.py              # Auto Scaling 테스트 스크립트
-│   └── README.md                        # Auto Scaling 사용 가이드
+│   └── test_autoscaling.py              # Auto Scaling 테스트 스크립트
 ├── mcp/                                 # MCP 서버 (Model Context Protocol)
 │   ├── sm_endpoint_mcp.py               # SageMaker Endpoint MCP 서버
-│   ├── example_mcp_config.json          # MCP 설정 예시
-│   └── README.md                        # MCP 서버 사용 가이드
+│   └── example_mcp_config.json          # MCP 설정 예시
 ├── docs/                                # 문서 디렉토리
-│   ├── USAGE.md                         # 상세 사용 가이드
-│   ├── AUTOSCALING_GUIDE.md             # Auto Scaling 가이드
-│   ├── VLLM_CONFIG.md                   # vLLM 설정 가이드 (LMI v16)
-│   └── LMI_ARCHITECTURE.md              # LMI 아키텍처 가이드
 ├── create_endpoint.py                   # Endpoint 생성/삭제 스크립트
 ├── sagemaker_benchmark.py               # 메인 벤치마크 스크립트
 ├── benchmark_datasets.py                # 데이터셋 모듈
@@ -175,8 +169,9 @@ uv run python sagemaker_benchmark.py \
 ├── create_endpoint_tutorial.ipynb       # Endpoint 생성 튜토리얼
 ├── pyproject.toml                       # 프로젝트 설정 (uv)
 ├── requirements.txt                     # 필요한 패키지 (pip)
+├── README_ko.md                         # 기본 가이드 (한국어)
 ├── .env.example                         # 환경 변수 예시
-└── README.md                            # 기본 가이드
+└── README.md                            # 기본 가이드 (영어)
 ```
 
 ## Endpoint 관리
@@ -297,8 +292,4 @@ SageMaker execution role에는 다음 권한이 필요합니다:
 
 ## 라이선스
 
-MIT
-
-## 참고
-
-이 프로젝트는 [vLLM](https://github.com/vllm-project/vllm)의 벤치마크 도구를 참고하여 만들어졌습니다.
+본 프로젝트는 MIT 라이선스에 따라 제공됩니다. LICENSE 파일을 참조하세요.

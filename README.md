@@ -156,23 +156,15 @@ Each metric provides average, median, and P99 values.
 │   └── vllm_config.json                 # Actual vLLM configuration
 ├── autoscaling/                         # Auto Scaling related tools
 │   ├── autoscaling.py                   # Auto Scaling setup script
-│   ├── test_autoscaling.py              # Auto Scaling test script
-│   └── README.md                        # Auto Scaling usage guide
+│   └── test_autoscaling.py              # Auto Scaling test script
 ├── mcp/                                 # MCP server (Model Context Protocol)
 │   ├── sm_endpoint_mcp.py               # SageMaker Endpoint MCP server
-│   ├── example_mcp_config.json          # MCP configuration example
-│   └── README.md                        # MCP server usage guide
+│   └── example_mcp_config.json          # MCP configuration example
 ├── docs/                                # Documentation directory
-│   ├── USAGE.md                         # Detailed usage guide (English)
-│   ├── AUTOSCALING_GUIDE.md             # Auto Scaling guide
-│   ├── VLLM_CONFIG.md                   # vLLM configuration guide (LMI v16)
-│   └── LMI_ARCHITECTURE.md              # LMI architecture guide
 ├── create_endpoint.py                   # Endpoint creation/deletion script
 ├── sagemaker_benchmark.py               # Main benchmark script
 ├── benchmark_datasets.py                # Dataset module
-├── benchmark_alpaca.py                  # Alpaca dataset benchmark
 ├── test_endpoint.py                     # Endpoint test script
-├── test_alpaca_benchmark.py             # Alpaca benchmark test
 ├── check_metrics.py                     # CloudWatch metrics checker
 ├── create_endpoint_tutorial.ipynb       # Endpoint creation tutorial
 ├── pyproject.toml                       # Project configuration (uv)
@@ -299,8 +291,4 @@ The SageMaker execution role requires the following permissions:
 
 ## License
 
-MIT
-
-## Reference
-
-This project was inspired by the benchmark tools from [vLLM](https://github.com/vllm-project/vllm).
+This project is licensed under the MIT License. See the LICENSE file for details.
