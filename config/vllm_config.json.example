@@ -1,0 +1,17 @@
+{
+  "HF_MODEL_ID": "openai/gpt-oss-20b",
+  "HF_TOKEN": "",
+  "OPTION_MODEL_LOADING_TIMEOUT": "1500",
+  "SERVING_FAIL_FAST": "true",
+  "OPTION_ASYNC_MODE": "true",
+  "OPTION_ROLLING_BATCH": "disable",
+  "TENSOR_PARALLEL_DEGREE": "max",
+  "OPTION_ENTRYPOINT": "djl_python.lmi_vllm.vllm_async_service",
+  
+  "_comment": "Additional vLLM options you can configure:",
+  "_MAX_MODEL_LEN": "Set maximum model length",
+  "_GPU_MEMORY_UTILIZATION": "GPU memory utilization (0.0-1.0)",
+  "_MAX_NUM_SEQS": "Maximum number of sequences",
+  "_ENABLE_CHUNKED_PREFILL": "Enable chunked prefill",
+  "_MAX_NUM_BATCHED_TOKENS": "Maximum number of batched tokens"
+}

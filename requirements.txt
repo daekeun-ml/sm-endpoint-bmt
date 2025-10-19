@@ -1,0 +1,9 @@
+boto3>=1.40.55
+botocore>=1.40.55
+datasets>=4.2.0
+fastmcp>=2.12.5
+numpy>=1.26.4
+python-dotenv>=1.1.1
+sagemaker>=2.253.1
+tqdm>=4.67.1
+transformers>=4.57.1
