@@ -116,10 +116,15 @@ python test_endpoint.py --endpoint-name "your-endpoint-name"
 ### 3. Run Benchmark
 
 ```bash
-uv run python sagemaker_benchmark.py \
+uv run sagemaker_benchmark.py \
   --endpoint-name 'your-endpoint-name' \
-  --num-prompts 200
+  --dataset-name random \
+  --num-prompts 50 \
+  --random-input-len 2048 \
+  --random-output-len 500
 ```
+
+![benchmark](./imgs/sm-endpoint-bmt.png)
 
 ### 4. Detailed Usage
 
@@ -252,14 +257,15 @@ config/
 - 📖 **[Auto Scaling Detailed Guide](docs/AUTOSCALING_GUIDE.md)** - Comprehensive usage guide for auto scaling setup, testing, metrics monitoring, and all features
 
 ## MCP Server (Model Context Protocol)
+
 <table>
   <tr>
     <td><img src="imgs/sm-endpoint-mcp1.png" alt="mcp1" width="450"/></td>
     <td><img src="imgs/sm-endpoint-mcp2.png" alt="mcp2" width="450"/></td>
   </tr>
   <tr>
-    <td align="center"><em>LLM 호출 테스트</em></td>
-    <td align="center"><em>벤치마크 예시</em></td>
+    <td align="center"><em>LLM invoke example</em></td>
+    <td align="center"><em>Benchmark example</em></td>
   </tr>
 </table>
 
