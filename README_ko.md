@@ -116,15 +116,20 @@ python test_endpoint.py --endpoint-name "your-endpoint-name"
 ### 3. 벤치마크 실행
 
 ```bash
-uv run python sagemaker_benchmark.py \
+uv run sagemaker_benchmark.py \
   --endpoint-name 'your-endpoint-name' \
-  --num-prompts 200
+  --dataset-name random \
+  --num-prompts 50 \
+  --random-input-len 2048 \
+  --random-output-len 500
 ```
 
-### 4. 고급 사용법
+![benchmark](./imgs/sm-endpoint-bmt.png)
+
+### 4. 상세 사용법
 
 더 많은 예시와 파라미터 설명은 다음 문서를 참조하세요:
-- **[사용 가이드 (한국어)](docs/USAGE_KR.md)** - 상세한 사용법과 예시
+- **[사용 가이드 (한국어)](docs/BMT_GUIDE_ko.md)** - 상세한 사용법과 예시
 
 ## 주요 기능
 
@@ -229,10 +234,6 @@ uv run python create_endpoint.py delete
 uv run python create_endpoint.py delete --endpoint-name "your-endpoint-name"
 ```
 
-### 상세 사용법
-
-- 📖 **[SageMaker Endpoint 벤치마크 도구 - 사용 가이드 (한국어)](docs/BMT_GUIDE_ko.md)**
-
 ### 설정 우선순위
 
 1. CLI 인자 (최우선)
@@ -257,6 +258,17 @@ config/
 - 📖 **[Auto Scaling 상세 가이드 (한국어)](docs/AUTOSCALING_GUIDE_ko.md)** - 오토스케일링 설정, 테스트, 메트릭 모니터링 등 모든 기능에 대한 상세한 사용법
 
 ## MCP 서버 (Model Context Protocol)
+
+<table>
+  <tr>
+    <td><img src="imgs/sm-endpoint-mcp1.png" alt="mcp1" width="450"/></td>
+    <td><img src="imgs/sm-endpoint-mcp2.png" alt="mcp2" width="450"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>LLM 호출 테스트</em></td>
+    <td align="center"><em>벤치마크 예시</em></td>
+  </tr>
+</table>
 
 - 📖 **[MCP 서버 가이드 (한국어)](docs/MCP_ko.md)** MCP (Model Context Protocol) 서버 활용 가이드
 

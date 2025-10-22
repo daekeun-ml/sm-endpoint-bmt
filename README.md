@@ -121,10 +121,10 @@ uv run python sagemaker_benchmark.py \
   --num-prompts 200
 ```
 
-### 4. Advanced Usage
+### 4. Detailed Usage
 
 For more examples and parameter descriptions, refer to these documents:
-- **[Usage Guide (English)](docs/USAGE.md)** - Detailed usage and examples
+- **[Usage Guide (English)](docs/BMT_GUIDE.md)** - Detailed usage and examples
 
 ## Key Features
 
@@ -228,10 +228,6 @@ uv run python create_endpoint.py delete
 uv run python create_endpoint.py delete --endpoint-name "your-endpoint-name"
 ```
 
-### Detailed usage
-
-- 📖 **[SageMaker Endpoint Benchmark Tool - Usage Guide](docs/BMT_GUIDE.md)**
-
 ### Configuration Priority
 
 1. CLI arguments (highest priority)
@@ -256,6 +252,16 @@ config/
 - 📖 **[Auto Scaling Detailed Guide](docs/AUTOSCALING_GUIDE.md)** - Comprehensive usage guide for auto scaling setup, testing, metrics monitoring, and all features
 
 ## MCP Server (Model Context Protocol)
+<table>
+  <tr>
+    <td><img src="imgs/sm-endpoint-mcp1.png" alt="mcp1" width="450"/></td>
+    <td><img src="imgs/sm-endpoint-mcp2.png" alt="mcp2" width="450"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>LLM 호출 테스트</em></td>
+    <td align="center"><em>벤치마크 예시</em></td>
+  </tr>
+</table>
 
 - 📖 **[MCP Server Guide](docs/MCP.md)** - Model Context Protocol server integration guide
 

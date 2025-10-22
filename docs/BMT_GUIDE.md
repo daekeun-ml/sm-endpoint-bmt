@@ -79,14 +79,14 @@ uv run python sagemaker_benchmark.py \
 
 ```bash
 uv run python sagemaker_benchmark.py \
-  --endpoint-name 'gpt-oss-120b-2025-10-16-10-23-39-438'
+  --endpoint-name 'your-endpoint-name'
 ```
 
 ### 2. Custom Random Dataset Parameters
 
 ```bash
 uv run python sagemaker_benchmark.py \
-  --endpoint-name 'gpt-oss-120b-2025-10-16-10-23-39-438' \
+  --endpoint-name 'your-endpoint-name' \
   --dataset-name random \
   --num-prompts 500 \
   --random-input-len 2048 \
@@ -97,7 +97,7 @@ uv run python sagemaker_benchmark.py \
 
 ```bash
 uv run python sagemaker_benchmark.py \
-  --endpoint-name 'gpt-oss-120b-2025-10-16-10-23-39-438' \
+  --endpoint-name 'your-endpoint-name' \
   --dataset-name sharegpt \
   --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json \
   --num-prompts 1000
@@ -107,7 +107,7 @@ uv run python sagemaker_benchmark.py \
 
 ```bash
 uv run python sagemaker_benchmark.py \
-  --endpoint-name 'gpt-oss-120b-2025-10-16-10-23-39-438' \
+  --endpoint-name 'your-endpoint-name' \
   --dataset-name huggingface \
   --dataset-path "tatsu-lab/alpaca" \
   --hf-prompt-column "instruction" \
@@ -119,7 +119,7 @@ uv run python sagemaker_benchmark.py \
 
 ```bash
 uv run python sagemaker_benchmark.py \
-  --endpoint-name 'gpt-oss-120b-2025-10-16-10-23-39-438' \
+  --endpoint-name 'your-endpoint-name' \
   --num-prompts 1000 \
   --max-concurrency 50
 ```
@@ -128,7 +128,7 @@ uv run python sagemaker_benchmark.py \
 
 ```bash
 uv run python sagemaker_benchmark.py \
-  --endpoint-name 'gpt-oss-120b-2025-10-16-10-23-39-438' \
+  --endpoint-name 'your-endpoint-name' \
   --request-rate 10 \
   --num-prompts 500
 ```
@@ -137,7 +137,7 @@ uv run python sagemaker_benchmark.py \
 
 ```bash
 uv run python sagemaker_benchmark.py \
-  --endpoint-name 'gpt-oss-120b-2025-10-16-10-23-39-438' \
+  --endpoint-name 'your-endpoint-name' \
   --temperature 0.8 \
   --top-p 0.95 \
   --num-prompts 200
@@ -147,7 +147,7 @@ uv run python sagemaker_benchmark.py \
 
 ```bash
 uv run python sagemaker_benchmark.py \
-  --endpoint-name 'gpt-oss-120b-2025-10-16-10-23-39-438' \
+  --endpoint-name 'your-endpoint-name' \
   --temperature 0.0 \
   --num-prompts 200
 ```
@@ -156,7 +156,7 @@ uv run python sagemaker_benchmark.py \
 
 ```bash
 uv run python sagemaker_benchmark.py \
-  --endpoint-name 'gpt-oss-120b-2025-10-16-10-23-39-438' \
+  --endpoint-name 'your-endpoint-name' \
   --temperature 0.7 \
   --top-k 50 \
   --repetition-penalty 1.1 \
@@ -167,7 +167,7 @@ uv run python sagemaker_benchmark.py \
 
 ```bash
 uv run python sagemaker_benchmark.py \
-  --endpoint-name 'gpt-oss-120b-2025-10-16-10-23-39-438' \
+  --endpoint-name 'your-endpoint-name' \
   --use-beam-search \
   --best-of 3 \
   --num-prompts 100
@@ -177,7 +177,7 @@ uv run python sagemaker_benchmark.py \
 
 ```bash
 uv run python sagemaker_benchmark.py \
-  --endpoint-name 'gpt-oss-120b-2025-10-16-10-23-39-438' \
+  --endpoint-name 'your-endpoint-name' \
   --dataset-name sharegpt \
   --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json \
   --disable-shuffle \
