@@ -9,7 +9,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List
 import boto3
 from fastmcp import FastMCP
-from datasets import load_dataset
+
+# 🔴 datasets 는 최상단에서 import 하지 않는다. 이 파일에서 쓰는 곳은 dataset_name 을 준
+#    벤치마크 한 곳뿐인데, 최상단에 두면 서버를 띄우는 것만으로도 설치를 강제한다
+#    (pyproject 의 mcp extra 에는 fastmcp 만 있어 실제로 ModuleNotFoundError 가 났다).
+#    쓰는 자리에서 import 하고, 없으면 무엇을 설치해야 하는지 알려 준다.
 
 # Initialize MCP server
 mcp = FastMCP("SageMaker Endpoint Tools")
@@ -187,6 +191,13 @@ def run_benchmark(endpoint_name: str, num_requests: int = 10, concurrent_request
         test_inputs = []
         if dataset_name:
             try:
+                try:
+                    from datasets import load_dataset
+                except ImportError as e:
+                    raise RuntimeError(
+                        f"dataset_name='{dataset_name}' 을 쓰려면 datasets 가 필요합니다: "
+                        "pip install 'sm-endpoint-bmt[datasets]' "
+                        "(dataset_name 을 비우면 내장 프롬프트로 돕니다)") from e
                 dataset = load_dataset(dataset_name, split='train')
                 # Sample random entries from the dataset
                 sample_size = min(num_requests, len(dataset))

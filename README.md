@@ -31,6 +31,44 @@ pip install -r requirements.txt
 
 > **Recommendation**: uv is 10-100x faster and more reliable than pip. It automatically manages virtual environments and has superior dependency resolution. See [uv official documentation](https://docs.astral.sh/uv/) for more details.
 
+### As a dependency in another project
+
+The package is installable, so another project can benchmark its own endpoints without vendoring
+this code:
+
+```bash
+uv add "sm-endpoint-bmt @ git+https://github.com/daekeun-ml/sm-endpoint-bmt"
+pip install "sm-endpoint-bmt @ git+https://github.com/daekeun-ml/sm-endpoint-bmt"
+```
+
+That gives you the `sm-bench` command and importable modules:
+
+```bash
+sm-bench --endpoint-name my-endpoint --num-prompts 50
+```
+
+```python
+import argparse
+from sagemaker_benchmark import add_cli_args, main
+
+parser = argparse.ArgumentParser()
+add_cli_args(parser)            # same flags as the CLI
+```
+
+Only what a benchmark run needs is installed by default. The rest is behind extras so an unrelated
+project does not pull in heavy dependencies it never calls:
+
+| Extra | Adds | Needed for |
+|---|---|---|
+| `tokenizer` | `transformers` | `--tokenizer`, for exact input token counts |
+| `datasets` | `datasets` | `--dataset-name sharegpt` / `huggingface` |
+| `mcp` | `fastmcp` | the MCP server |
+| `all` | all three | |
+
+```bash
+uv add "sm-endpoint-bmt[all] @ git+https://github.com/daekeun-ml/sm-endpoint-bmt"
+```
+
 ## Configuration
 
 ### 1. Serving Configuration File

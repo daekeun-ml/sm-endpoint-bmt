@@ -42,14 +42,21 @@ build-backend = "hatchling.build"
 # 🔴 packages 와 include 를 함께 쓰면 루트의 .py 가 휠에서 빠진다(실측: sagemaker_benchmark.py
 #    누락). 플랫 모듈은 force-include 로 넣는다 — 목적지 경로를 명시해야 확실히 들어간다.
 [tool.hatch.build.targets.wheel]
-packages = ["autoscaling", "mcp"]
+packages = ["autoscaling"]
 
+# 🔴 mcp/ 를 packages 에 넣지 않는다. PyPI 에 `mcp` 패키지(MCP SDK, fastmcp 의 의존성)가 있어서
+#    site-packages/mcp/ 를 그 패키지와 공유하게 된다 — 실측으로 두 배포가 같은 디렉터리에 파일을
+#    쓰는 것을 확인했다(우리 1개 + MCP SDK 111개). 지금은 파일 이름이 겹치지 않아 동작하지만,
+#    한쪽이 같은 이름을 추가하면 조용히 덮어쓴다. 그래서 휠에서는 sm_endpoint_mcp.py 를 최상위
+#    모듈로 넣는다. 리포의 mcp/ 디렉터리는 그대로 두므로 문서의 `python mcp/sm_endpoint_mcp.py`
+#    는 계속 동작하고, 설치 환경에서는 `python -m sm_endpoint_mcp` 로 부른다.
 [tool.hatch.build.targets.wheel.force-include]
 "sagemaker_benchmark.py" = "sagemaker_benchmark.py"
 "benchmark_datasets.py" = "benchmark_datasets.py"
 "create_endpoint.py" = "create_endpoint.py"
 "test_endpoint.py" = "test_endpoint.py"
 "check_metrics.py" = "check_metrics.py"
+"mcp/sm_endpoint_mcp.py" = "sm_endpoint_mcp.py"
 
 [project.scripts]
 # 설치하면 `sm-bench` 로 부를 수 있다. `python sagemaker_benchmark.py` 와 같은 진입점이다.

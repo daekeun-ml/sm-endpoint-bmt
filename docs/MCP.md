@@ -27,6 +27,10 @@ uv add fastmcp
 
 ### 2. MCP Server Configuration
 
+If you cloned this repo, point at `mcp/sm_endpoint_mcp.py` as shown below. If you installed the
+package (`pip install 'sm-endpoint-bmt[mcp]'`), call it as a module instead:
+`"command": "python", "args": ["-m", "sm_endpoint_mcp"]`.
+
 #### Workspace Level Configuration (.kiro/settings/mcp.json)
 
 ```json

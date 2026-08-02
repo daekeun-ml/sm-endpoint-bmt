@@ -27,6 +27,10 @@ uv add fastmcp
 
 ### 2. MCP 서버 설정
 
+이 리포를 클론해 쓰는 경우 아래 예시처럼 `mcp/sm_endpoint_mcp.py` 경로를 그대로 지정합니다.
+패키지로 설치했다면(`pip install 'sm-endpoint-bmt[mcp]'`) 경로 대신 모듈로 부를 수 있습니다:
+`"command": "python", "args": ["-m", "sm_endpoint_mcp"]`.
+
 #### 워크스페이스 레벨 설정 (.kiro/settings/mcp.json)
 
 ```json

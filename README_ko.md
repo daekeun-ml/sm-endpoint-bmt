@@ -31,6 +31,43 @@ pip install -r requirements.txt
 
 > **권장사항**: uv는 pip보다 10-100배 빠르고 더 안정적인 Python 패키지 관리자입니다. 자동으로 가상환경을 관리하고 의존성 해결이 뛰어납니다. 자세한 내용은 [uv 공식 문서](https://docs.astral.sh/uv/)를 참조하세요.
 
+### 다른 프로젝트에서 의존성으로 쓰기
+
+설치 가능한 패키지라서, 다른 프로젝트가 이 코드를 복사해 넣지 않고도 자기 endpoint 를 잴 수 있습니다:
+
+```bash
+uv add "sm-endpoint-bmt @ git+https://github.com/daekeun-ml/sm-endpoint-bmt"
+pip install "sm-endpoint-bmt @ git+https://github.com/daekeun-ml/sm-endpoint-bmt"
+```
+
+설치하면 `sm-bench` 명령과 import 가능한 모듈이 생깁니다:
+
+```bash
+sm-bench --endpoint-name my-endpoint --num-prompts 50
+```
+
+```python
+import argparse
+from sagemaker_benchmark import add_cli_args, main
+
+parser = argparse.ArgumentParser()
+add_cli_args(parser)            # CLI 와 같은 플래그
+```
+
+기본 설치에는 벤치마크에 반드시 필요한 것만 들어갑니다. 나머지는 extra 로 뺐습니다 — 관계없는
+프로젝트가 쓰지도 않는 무거운 의존성을 끌어오지 않게 하려는 것입니다.
+
+| Extra | 추가되는 것 | 언제 필요한가 |
+|---|---|---|
+| `tokenizer` | `transformers` | `--tokenizer` 로 입력 토큰 수를 정확히 셀 때 |
+| `datasets` | `datasets` | `--dataset-name sharegpt` / `huggingface` |
+| `mcp` | `fastmcp` | MCP 서버를 띄울 때 |
+| `all` | 위 셋 전부 | |
+
+```bash
+uv add "sm-endpoint-bmt[all] @ git+https://github.com/daekeun-ml/sm-endpoint-bmt"
+```
+
 ## 설정
 
 ### 1. 서빙 설정 파일
