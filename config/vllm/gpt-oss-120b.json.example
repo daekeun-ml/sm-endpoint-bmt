@@ -1,0 +1,13 @@
+{
+  "_engine": "독립 vLLM DLC. env 접두사는 SM_VLLM_* 이다 — LMI(OPTION_*)와 섞이지 않는다.",
+  "_model": "MoE 대형. 8-way TP 가 필요하다. 로딩이 길어 타임아웃을 넉넉히 둔다.",
+  "_instance": "권장: ml.p4d.24xlarge (create_endpoint.py --instance-type)",
+  "SM_VLLM_MODEL": "openai/gpt-oss-120b",
+  "SM_VLLM_TENSOR_PARALLEL_SIZE": "8",
+  "SM_VLLM_MAX_MODEL_LEN": "8192",
+  "_max_num_seqs": "vLLM 기본값 256 은 실습 규모에 과하다. 동시 시퀀스를 줄이면 요청당 KV 캐시 여유가 늘어 OOM 을 피하기 쉽다. 처리량을 올리려면 이 값을 키우고 메모리를 다시 본다.",
+  "SM_VLLM_MAX_NUM_SEQS": "16",
+  "_gpu_mem_util": "🔴 문자열로 쓴다. str(0.90) 은 '0.9' 가 되어 다른 값이 전달된다.",
+  "SM_VLLM_GPU_MEMORY_UTILIZATION": "0.90",
+  "HF_TOKEN": ""
+}

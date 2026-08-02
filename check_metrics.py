@@ -41,7 +41,19 @@ class SageMakerMetricsChecker:
             'ConcurrentRequestsPerModel',
             'ConcurrentRequestsPerCopy',
             'Invocation4XXErrors',
-            'Invocation5XXErrors'
+            'Invocation5XXErrors',
+            # Streaming metrics: FirstChunk* is the SageMaker-side counterpart of
+            # the client-side TTFT the benchmark reports. Comparing
+            # FirstChunkModelLatency (in-container) with FirstChunkLatency
+            # (incl. platform routing) is the only way to attribute a slow TTFT
+            # to the model versus SageMaker overhead. All in Microseconds.
+            'FirstChunkLatency',
+            'FirstChunkModelLatency',
+            'FirstChunkOverheadLatency',
+            # Failures that happen after the 200 response header - a state that
+            # has no equivalent in a plain HTTP benchmark.
+            'MidStreamErrors',
+            'InvocationModelErrors'
         ]
         
         self.instance_metrics = [
@@ -59,9 +71,15 @@ class SageMakerMetricsChecker:
             valid_stats = ['Sum', 'SampleCount']
         elif metric_name in ['InvocationsPerInstance']:
             valid_stats = ['Sum']
-        elif metric_name in ['ModelLatency', 'OverheadLatency']:
+        elif metric_name in ['ModelLatency', 'OverheadLatency',
+                             'FirstChunkLatency', 'FirstChunkModelLatency',
+                             'FirstChunkOverheadLatency']:
             valid_stats = ['Average', 'Sum', 'Minimum', 'Maximum', 'SampleCount']
-        elif metric_name in ['Invocation4XXErrors', 'Invocation5XXErrors']:
+        elif metric_name in ['ConcurrentRequestsPerModel', 'ConcurrentRequestsPerCopy']:
+            # AWS documents only Min/Max as valid statistics for these two.
+            valid_stats = ['Minimum', 'Maximum', 'SampleCount']
+        elif metric_name in ['Invocation4XXErrors', 'Invocation5XXErrors',
+                             'MidStreamErrors', 'InvocationModelErrors']:
             valid_stats = ['Average', 'Sum']
         else:
             valid_stats = ['Average', 'Maximum', 'Sum', 'SampleCount']
@@ -202,7 +220,9 @@ class SageMakerMetricsChecker:
             datapoints = self.get_metric_statistics(metric_name, start_time, end_time, 'AWS/SageMaker')
             
             if datapoints:
-                if metric_name in ['ModelLatency', 'OverheadLatency']:
+                if metric_name in ['ModelLatency', 'OverheadLatency',
+                                   'FirstChunkLatency', 'FirstChunkModelLatency',
+                                   'FirstChunkOverheadLatency']:
                     # Calculate interval aggregations for latency metrics
                     intervals = self.calculate_interval_aggregations(datapoints, unified_timeline, start_time, 'latency')
                     total_requests = sum(dp.get('SampleCount', 0) for dp in datapoints)
@@ -221,13 +241,16 @@ class SageMakerMetricsChecker:
                     requests_per_minute = total_requests / minutes if minutes > 0 else 0
                     
                     if metric_name == 'ConcurrentRequestsPerModel':
+                        # AWS defines only Min/Max for this metric, so there is no
+                        # Average field to report - use Min as the floor instead of
+                        # averaging a statistic that does not exist.
                         max_concurrent = max(dp.get('Maximum', 0) for dp in datapoints)
-                        avg_concurrent = sum(dp.get('Average', 0) for dp in datapoints) / len(datapoints)
-                        
+                        min_concurrent = min(dp.get('Minimum', 0) for dp in datapoints)
+
                         metrics_data['invocation_metrics'][metric_name] = {
                             'type': 'summary',
                             'max_concurrent': max_concurrent,
-                            'avg_concurrent': avg_concurrent
+                            'min_concurrent': min_concurrent
                         }
                     else:
                         metrics_data['invocation_metrics'][metric_name] = {
@@ -308,7 +331,7 @@ class SageMakerMetricsChecker:
                     print(f"   📈 Average: {data['requests_per_minute']:.2f} requests/minute")
                 elif 'max_concurrent' in data:
                     print(f"   📊 Max Concurrent: {data['max_concurrent']:.0f} requests")
-                    print(f"   📈 Average Concurrent: {data['avg_concurrent']:.2f} requests")
+                    print(f"   📉 Min Concurrent: {data['min_concurrent']:.0f} requests")
             elif data['type'] == 'error_summary':
                 print(f"✅ {metric_name}:")
                 if data['total_errors'] > 0:
@@ -325,11 +348,12 @@ class SageMakerMetricsChecker:
                 for interval in data['intervals']:
                     timestamp = interval['timestamp'].strftime('%H:%M:%S')
                     if interval['has_data']:
+                        # CloudWatch ModelLatency/OverheadLatency are Microseconds,
+                        # so /1000 is milliseconds. The seconds figure is only a
+                        # convenience restatement of the same number.
                         avg_ms = interval['avg_latency'] / 1000
                         max_ms = interval['max_latency'] / 1000
-                        avg_s = interval['avg_latency'] / 1000000
-                        max_s = interval['max_latency'] / 1000000
-                        print(f"   [{timestamp}] Avg={avg_ms:.1f}ms ({avg_s:.2f}s), Max={max_ms:.1f}ms ({max_s:.2f}s), Requests={interval['requests']:.0f}")
+                        print(f"   [{timestamp}] Avg={avg_ms:.1f}ms (= {avg_ms / 1000:.2f}s), Max={max_ms:.1f}ms (= {max_ms / 1000:.2f}s), Requests={interval['requests']:.0f}")
                     else:
                         print(f"   [{timestamp}] No activity")
             
@@ -416,7 +440,7 @@ class SageMakerMetricsChecker:
                 'average': "평균",
                 'requests_per_minute': "요청/분",
                 'max_concurrent': "최대 동시",
-                'avg_concurrent': "평균 동시",
+                'min_concurrent': "최소 동시",
                 'no_errors': "오류 없음",
                 'total_errors': "총 오류",
                 'summary': "요약",
@@ -447,7 +471,7 @@ class SageMakerMetricsChecker:
                 'average': "Average",
                 'requests_per_minute': "requests/minute",
                 'max_concurrent': "Max Concurrent",
-                'avg_concurrent': "Average Concurrent",
+                'min_concurrent': "Min Concurrent",
                 'no_errors': "No errors",
                 'total_errors': "Total Errors",
                 'summary': "Summary",
@@ -497,7 +521,7 @@ class SageMakerMetricsChecker:
                     report.append(f"- **{texts['average']}:** {data['requests_per_minute']:.2f} {texts['requests_per_minute']}")
                 elif 'max_concurrent' in data:
                     report.append(f"- **{texts['max_concurrent']}:** {data['max_concurrent']:.0f} requests")
-                    report.append(f"- **{texts['avg_concurrent']}:** {data['avg_concurrent']:.2f} requests")
+                    report.append(f"- **{texts['min_concurrent']}:** {data['min_concurrent']:.0f} requests")
             elif data['type'] == 'error_summary':
                 if data['total_errors'] > 0:
                     report.append(f"❌ **{texts['total_errors']}:** {data['total_errors']:.0f} over {data['time_period']} minutes")
@@ -512,11 +536,10 @@ class SageMakerMetricsChecker:
                 for interval in data['intervals']:
                     timestamp = interval['timestamp'].strftime('%H:%M:%S')
                     if interval['has_data']:
+                        # CloudWatch ModelLatency/OverheadLatency are Microseconds.
                         avg_ms = interval['avg_latency'] / 1000
                         max_ms = interval['max_latency'] / 1000
-                        avg_s = interval['avg_latency'] / 1000000
-                        max_s = interval['max_latency'] / 1000000
-                        report.append(f"  - `[{timestamp}]` Avg={avg_ms:.1f}ms ({avg_s:.2f}s), Max={max_ms:.1f}ms ({max_s:.2f}s), Requests={interval['requests']:.0f}")
+                        report.append(f"  - `[{timestamp}]` Avg={avg_ms:.1f}ms (= {avg_ms / 1000:.2f}s), Max={max_ms:.1f}ms (= {max_ms / 1000:.2f}s), Requests={interval['requests']:.0f}")
                     else:
                         report.append(f"  - `[{timestamp}]` {texts['no_activity']}")
             

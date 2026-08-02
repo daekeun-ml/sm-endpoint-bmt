@@ -33,19 +33,34 @@ pip install -r requirements.txt
 
 ## Configuration
 
-### 1. vLLM Configuration File
+### 1. Serving Configuration File
 
-Copy example files from the `config/` folder to create configuration files:
+Configs live in `config/<engine>/`. Copy an example and drop the `.example` suffix:
 
 ```bash
-# Default model configuration
-cp config/vllm_config.json.example config/vllm_config.json
+# vLLM DLC (the default)
+cp config/vllm/gemma-4-E4B.json.example config/vllm/gemma-4-E4B.json
 
-# Or 120B model configuration
-cp config/vllm_config_120b.json.example config/vllm_config_120b.json
+# DJL LMI
+cp config/lmi/gpt-oss-20b.json.example config/lmi/gpt-oss-20b.json
 ```
 
-Example `config/vllm_config.json` file:
+Both engines carry both model families — gemma-4 in five sizes and gpt-oss in two. See
+[Config Folder Structure](#config-folder-structure) for the full list.
+
+`config/vllm/gemma-4-E4B.json` (`SM_VLLM_*` keys):
+```json
+{
+  "SM_VLLM_MODEL": "google/gemma-4-E4B-it",
+  "SM_VLLM_TENSOR_PARALLEL_SIZE": "1",
+  "SM_VLLM_MAX_MODEL_LEN": "4096",
+  "SM_VLLM_MAX_NUM_SEQS": "32",
+  "SM_VLLM_GPU_MEMORY_UTILIZATION": "0.90",
+  "HF_TOKEN": ""
+}
+```
+
+`config/lmi/gpt-oss-20b.json` (`OPTION_*` keys):
 ```json
 {
   "HF_MODEL_ID": "openai/gpt-oss-20b",
@@ -58,6 +73,10 @@ Example `config/vllm_config.json` file:
   "OPTION_ENTRYPOINT": "djl_python.lmi_vllm.vllm_async_service"
 }
 ```
+
+`create_endpoint.py` reads the env keys to decide which container to launch, so you never pass the
+engine on the command line. The example files also carry the reason for each value in `_`-prefixed
+comment keys, which are stripped before the config reaches the container.
 
 ### 2. Environment Variables (Optional)
 
@@ -73,7 +92,7 @@ INSTANCE_TYPE=ml.g5.xlarge
 INSTANCE_COUNT=1
 AWS_REGION=us-east-1
 SAGEMAKER_ROLE=arn:aws:iam::YOUR_ACCOUNT:role/service-role/AmazonSageMaker-ExecutionRole-XXXXX
-VLLM_CONFIG_FILE=config/vllm_config.json
+VLLM_CONFIG_FILE=config/vllm/gemma-4-E4B.json
 ```
 
 **Finding SageMaker Role:**
@@ -91,11 +110,11 @@ aws iam list-roles | grep -i sagemaker
 If you don't have a SageMaker endpoint, create one first:
 
 ```bash
-# Create with config/vllm_config.json and .env file settings
+# Create with config/vllm/gemma-4-E4B.json and .env file settings
 uv run python create_endpoint.py create
 
 # Use different vLLM configuration file
-uv run python create_endpoint.py create --vllm-config config/vllm_config_120b.json
+uv run python create_endpoint.py create --vllm-config config/lmi/gpt-oss-120b.json
 
 # Override instance type
 uv run python create_endpoint.py create --instance-type "ml.g6.48xlarge"
@@ -133,32 +152,90 @@ For more examples and parameter descriptions, refer to these documents:
 
 ## Key Features
 
-- ✅ **vLLM Compatible**: Same CLI interface as vLLM bench serve
-- ✅ **Auto Scaling**: CloudWatch metrics-based automatic scaling
-- ✅ **MCP Server**: Model Context Protocol server integrated with Kiro IDE
-- ✅ **Various Datasets**: Support for Random, ShareGPT, HuggingFace datasets
-- ✅ **Accurate Metrics**: Detailed performance metrics including TTFT, TPOT, ITL
-- ✅ **Sampling Parameters**: Temperature, top-p, top-k, beam search, etc.
-- ✅ **Concurrency Control**: Maximum concurrent requests and request rate control
+- **Metric parity with `vllm bench serve`**: same formulas, same field names, same printed table,
+  so results sit side by side with a vLLM run. Verified by replaying identical load against the
+  same server (see [Verified against vLLM](#verified-against-vllm)).
+- **CLI parity**: `--num-prompts`, `--request-rate`, `--burstiness`, `--max-concurrency`,
+  `--percentile-metrics`, `--metric-percentiles`, `--goodput`, `--ramp-up-strategy`,
+  `--ignore-eos`, `--save-result` and the sampling flags all behave as they do in vLLM.
+- **SageMaker transport done right**: the blocking boto3 call runs in a thread executor so the
+  event loop keeps pacing requests, botocore's connection pool is sized to `--max-concurrency`,
+  and retries are disabled so a silent re-send cannot double-count.
+- **Datasets**: random (with `--random-input-len` / `--random-output-len` /
+  `--random-range-ratio`), ShareGPT, HuggingFace.
+- **Endpoint lifecycle**: create, smoke-test, CloudWatch metrics, auto scaling, MCP server.
 
 ## Output Metrics
 
-- **Request throughput**: Requests processed per second
-- **Token throughput**: Tokens processed per second
-- **TTFT (Time to First Token)**: Time until first token
-- **TPOT (Time per Output Token)**: Time per output token
-- **ITL (Inter-token Latency)**: Latency between tokens
+Definitions follow vLLM exactly:
 
-Each metric provides average, median, and P99 values.
+| Metric | Definition |
+|---|---|
+| **TTFT** | first non-empty chunk arrival − request send |
+| **TPOT** | `(latency − ttft) / (output_len − 1)`, guarded when `output_len ≤ 1` |
+| **ITL** | gaps between consecutive chunks (TTFT is not part of it) |
+| **E2EL** | request send → last chunk |
+| **Request throughput** | completed requests / benchmark wall clock |
+| **Output throughput** | total output tokens / benchmark wall clock |
+| **goodput** | fraction of requests meeting the `--goodput ttft:…,tpot:…,e2el:…` SLOs |
+
+Each reports mean, median, std and the percentiles named by `--metric-percentiles`.
+
+Beyond vLLM's table, a **SageMaker Specifics** section reports what the AWS boundary adds:
+requests truncated at `finish_reason=length`, requests that stopped at EOS, requests where the
+container sent no usage frame, and a per-exception error breakdown. Truncation is a result, not an
+error — a benchmark that silently counts a cut-off answer as a success reports the wrong latency.
+
+## Verified against vLLM
+
+Same server (local vLLM 0.26.0 serving `google/gemma-4-E4B-it` on an L40S), same load
+(`--num-prompts 20 --request-rate 4 --max-concurrency 8`, random 256→128):
+
+| | `vllm bench serve` | this tool | delta |
+|---|---|---|---|
+| Total input tokens | 5307 | 5307 | 0.0% |
+| Total generated tokens | 2560 | 2560 | 0.0% |
+| Request throughput (req/s) | 2.76 | 2.78 | 0.6% |
+| Output throughput (tok/s) | 353.78 | 355.95 | 0.6% |
+| Peak concurrent requests | 12 | 12 | 0.0% |
+| Mean TPOT (ms) | 16.15 | 15.88 | 1.6% |
+| Median ITL (ms) | 15.85 | 15.86 | 0.0% |
+| Median TTFT (ms) | 54.84 | 48.22 | 12.1% |
+
+Token counts match exactly, which is the load-bearing check: the verification proxy deliberately
+splits each `PayloadPart` every 7 bytes, so an implementation that parsed parts independently would
+lose tokens here. TTFT differs because the comparison runs through a proxy hop that the direct HTTP
+path does not have.
+
+`--endpoint-url` points the SageMaker Runtime client at a local proxy, which is how that comparison
+is reproduced.
+
+## Why this exists rather than just using `vllm bench serve`
+
+`vllm bench serve` talks HTTP to an OpenAI-compatible server. A SageMaker endpoint is reached
+through `boto3 invoke_endpoint_with_response_stream`, and that boundary has its own traps:
+
+- **`PayloadPart` boundaries do not align with SSE lines.** A part can split mid-JSON. Parsing each
+  part on its own silently drops tokens and corrupts every metric downstream, so bytes are buffered
+  and split on `\n\n`.
+- **botocore's default connection pool is 10.** Run 64 concurrent requests through one client and 54
+  of them queue inside the client — the latency you measure is the pool's, not the endpoint's.
+- **The `/invocations` timeout is 60s** and the payload cap is 6 MB, which bounds how long a single
+  generation can run.
+- **The `messages` schema uses `max_tokens`, not `max_new_tokens`.** vLLM ignores the wrong key
+  silently, so the limit never applies.
+- **CloudWatch `ModelLatency` and `OverheadLatency` are in microseconds.** Treating them as
+  milliseconds is a 1000× error.
 
 ## File Structure
 
 ```
 .
-├── config/                              # Configuration files directory
-│   ├── vllm_config.json.example         # vLLM configuration example (default)
-│   ├── vllm_config_120b.json.example    # vLLM configuration example (120B)
-│   └── vllm_config.json                 # Actual vLLM configuration
+├── config/                              # Configuration files, one folder per serving engine
+│   ├── vllm/                            # standalone vLLM DLC — SM_VLLM_* keys
+│   │   ├── gemma-4-*.json.example       # 5 sizes: E2B, E4B, 12B, 26B-A4B, 31B
+│   │   └── gpt-oss-*.json.example       # 20b, 120b
+│   └── lmi/                             # DJL LMI — OPTION_* keys, same 7 models
 ├── autoscaling/                         # Auto Scaling related tools
 │   ├── autoscaling.py                   # Auto Scaling setup script
 │   └── test_autoscaling.py              # Auto Scaling test script
@@ -183,7 +260,7 @@ Each metric provides average, median, and P99 values.
 ### Creating Endpoints
 
 ```bash
-# Create with default settings (using config/vllm_config.json)
+# Create with default settings (using config/vllm/gemma-4-E4B.json)
 uv run python create_endpoint.py create
 
 # Specify SageMaker role (required for local environment)
@@ -191,7 +268,7 @@ uv run python create_endpoint.py create \
   --sagemaker-role "arn:aws:iam::YOUR_ACCOUNT:role/service-role/AmazonSageMaker-ExecutionRole-XXXXX"
 
 # Use different vLLM configuration file
-uv run python create_endpoint.py create --vllm-config config/vllm_config_120b.json
+uv run python create_endpoint.py create --vllm-config config/lmi/gpt-oss-120b.json
 
 # Override instance settings
 uv run python create_endpoint.py create \
@@ -207,21 +284,25 @@ uv run python create_endpoint.py create --wait true
 
 ### Managing Multiple Model Configurations
 
-You can manage configuration files for various models in the `config/` folder:
+Keep one config per model per engine. Copy the example, drop the `.example` suffix, and edit:
 
 ```bash
-# 20B model
-cp config/vllm_config.json.example config/vllm_config_20b.json
-nano config/vllm_config_20b.json
+# gemma-4 E4B on the vLLM DLC
+cp config/vllm/gemma-4-E4B.json.example config/vllm/gemma-4-E4B.json
 
-# 120B model
-cp config/vllm_config_120b.json.example config/vllm_config_120b.json
-nano config/vllm_config_120b.json
+# the same model on LMI, to compare containers
+cp config/lmi/gemma-4-E4B.json.example config/lmi/gemma-4-E4B.json
+
+# gpt-oss 120B on LMI
+cp config/lmi/gpt-oss-120b.json.example config/lmi/gpt-oss-120b.json
 
 # Usage
-uv run python create_endpoint.py create --vllm-config config/vllm_config_20b.json
-uv run python create_endpoint.py create --vllm-config config/vllm_config_120b.json
+uv run python create_endpoint.py create --vllm-config config/vllm/gemma-4-E4B.json
+uv run python create_endpoint.py create --vllm-config config/lmi/gpt-oss-120b.json
 ```
+
+The two files for the same model differ only in env keys, so benchmarking one against the other
+isolates the container's contribution to latency.
 
 ### Deleting Endpoints
 
@@ -237,20 +318,58 @@ uv run python create_endpoint.py delete --endpoint-name "your-endpoint-name"
 
 1. CLI arguments (highest priority)
 2. `.env` file
-3. `config/vllm_config.json` file
+3. The config file (`--vllm-config`, default `config/vllm/gemma-4-E4B.json`)
 4. Default values
 
 ### Config Folder Structure
 
-You can manage multiple model configurations in the `config/` folder:
+Configs are grouped by serving container, because the two containers read different environment
+variables and will silently ignore each other's. A config written for LMI (`OPTION_*`) handed to a
+vLLM DLC starts on defaults rather than failing, so the folder makes the choice explicit.
 
 ```
 config/
-├── vllm_config.json              # Default configuration
-├── vllm_config_20b.json          # 20B model configuration
-├── vllm_config_120b.json         # 120B model configuration
-└── vllm_config_custom.json       # Custom configuration
+├── vllm/                          # standalone vLLM DLC — reads SM_VLLM_*
+│   ├── gemma-4-E2B.json.example         effective 2.3B, single GPU
+│   ├── gemma-4-E4B.json.example         effective 4.5B, single L4/L40S — the default choice
+│   ├── gemma-4-12B.json.example         11.95B dense, TP 4
+│   ├── gemma-4-26B-A4B.json.example     MoE, total 25.2B / active 3.8B
+│   ├── gemma-4-31B.json.example         31.27B dense, needs L40S (44GiB)
+│   ├── gpt-oss-20b.json.example         MoE, TP 4
+│   └── gpt-oss-120b.json.example        MoE, TP 8
+└── lmi/                           # DJL LMI — reads OPTION_*
+    ├── gemma-4-E2B.json.example         (see the LMI version note in the file)
+    ├── gemma-4-E4B.json.example
+    ├── gemma-4-12B.json.example
+    ├── gemma-4-26B-A4B.json.example
+    ├── gemma-4-31B.json.example
+    ├── gpt-oss-20b.json.example
+    └── gpt-oss-120b.json.example
 ```
+
+Both model families are provided for both engines so the same model can be benchmarked on either
+container and the results compared. The env keys differ (`SM_VLLM_*` vs `OPTION_*`), and a config
+written for one is silently ignored by the other, which is why they live in separate folders.
+
+`create_endpoint.py` detects the engine from the env keys in the config and picks the matching
+container image, so you do not have to name it. Copy an example and drop the `.example` suffix:
+
+```bash
+cp config/vllm/gemma-4-E4B.json.example config/vllm/gemma-4-E4B.json
+uv run python create_endpoint.py create --vllm-config config/vllm/gemma-4-E4B.json
+```
+
+All five gemma-4 sizes are covered because SageMaker's managed paths do not cover them all —
+JumpStart cannot fine-tune gemma-4 at all. Each example carries the reason for its values in
+comments: why
+`max_num_seqs` is 32 rather than vLLM's default 256, why `gpu_memory_utilization` has to be a
+string, and why 31B needs a 44 GiB card even at 4-bit.
+
+One caveat on the LMI gemma-4 files: the bundled vLLM version comes from the `lmi<NN>` segment of
+the image tag, not the leading `0.36.0` (that is the djl-serving version). gemma-4 needs
+vLLM >= 0.19, so check the bundled version of whichever tag you pin before deploying. The vLLM DLC
+names its vLLM version in the tag directly, which makes `config/vllm/` the easier starting point for
+that family.
 
 ## Auto Scaling
 

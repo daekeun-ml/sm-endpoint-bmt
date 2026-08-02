@@ -1,0 +1,20 @@
+{
+  "_engine": "DJL LMI. env 접두사는 OPTION_* 이다 — vLLM DLC(SM_VLLM_*)와 섞이지 않는다. 내부 백엔드가 vLLM 이지만 버전은 LMI 이미지 태그가 정한다.",
+  "_model": "31.27B dense, 계열 최대. audio 미지원. L40S(44GiB)가 필요하다 — 4bit 로도 base resident 가 24GB 를 넘는다: quantizable linear 29.29B 는 NF4 로 14.6GB 지만 embed_tokens 1.41B 와 vision tower 0.58B 는 bf16 으로 남아 base 만 약 19.1GB 다.",
+  "_instance": "권장: ml.g6e.12xlarge",
+  "HF_MODEL_ID": "google/gemma-4-31B-it",
+  "HF_TOKEN": "",
+  "OPTION_TENSOR_PARALLEL_DEGREE": "4",
+  "OPTION_MAX_MODEL_LEN": "8192",
+  "OPTION_MAX_ROLLING_BATCH_SIZE": "16",
+  "OPTION_GPU_MEMORY_UTILIZATION": "0.90",
+  "OPTION_MODEL_LOADING_TIMEOUT": "1500",
+  "SERVING_FAIL_FAST": "true",
+  "OPTION_ASYNC_MODE": "true",
+  "OPTION_ROLLING_BATCH": "disable",
+  "OPTION_ENTRYPOINT": "djl_python.lmi_vllm.vllm_async_service",
+  "_multimodal": "텍스트만 쓸 때 이미지 입력을 차단한다. 값을 주지 않으면 컨테이너 기본값이 적용되므로, 텍스트 전용으로 고정하려면 명시하는 편이 안전하다.",
+  "_OPTION_LIMIT_MM_PER_PROMPT": "{\"image\": 0}",
+  "_lmi_version": "🔴 gemma-4 서빙에는 vLLM >= 0.19 가 필요하다. LMI 에서 번들 vLLM 버전을 정하는 것은 태그의 lmi<NN> 부분이고 앞의 0.36.0 은 djl-serving 버전이라 판단 기준이 아니다. (참고: LMI 27.0.0 = vLLM 0.23.1 로 조건 충족을 ECR 실조회로 확인했다. 그보다 낮은 태그는 배포 전에 번들 버전을 직접 확인하라.) 버전을 직접 고르고 싶으면 vLLM DLC(config/vllm/)를 쓴다.",
+  "_warning": "attention_k_eq_v=True 라서 global attention 레이어 10개에 v_proj 가 없다. LoRA target 을 이름으로 나열하면 PEFT 가 조용히 건너뛰어 비대칭 adapter 가 된다."
+}

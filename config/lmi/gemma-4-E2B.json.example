@@ -1,0 +1,20 @@
+{
+  "_engine": "DJL LMI. env 접두사는 OPTION_* 이다 — vLLM DLC(SM_VLLM_*)와 섞이지 않는다. 내부 백엔드가 vLLM 이지만 버전은 LMI 이미지 태그가 정한다.",
+  "_model": "effective 2.3B (on-disk 5.12B — PLE 가 2.39B). 계열 최소라 스모크 테스트에 적합하다.",
+  "_instance": "권장: ml.g5.2xlarge",
+  "HF_MODEL_ID": "google/gemma-4-E2B-it",
+  "HF_TOKEN": "",
+  "OPTION_TENSOR_PARALLEL_DEGREE": "1",
+  "OPTION_MAX_MODEL_LEN": "4096",
+  "OPTION_MAX_ROLLING_BATCH_SIZE": "32",
+  "OPTION_GPU_MEMORY_UTILIZATION": "0.90",
+  "OPTION_MODEL_LOADING_TIMEOUT": "1500",
+  "SERVING_FAIL_FAST": "true",
+  "OPTION_ASYNC_MODE": "true",
+  "OPTION_ROLLING_BATCH": "disable",
+  "OPTION_ENTRYPOINT": "djl_python.lmi_vllm.vllm_async_service",
+  "_multimodal": "텍스트만 쓸 때 이미지 입력을 차단한다. 값을 주지 않으면 컨테이너 기본값이 적용되므로, 텍스트 전용으로 고정하려면 명시하는 편이 안전하다.",
+  "_OPTION_LIMIT_MM_PER_PROMPT": "{\"image\": 0}",
+  "_lmi_version": "🔴 gemma-4 서빙에는 vLLM >= 0.19 가 필요하다. LMI 에서 번들 vLLM 버전을 정하는 것은 태그의 lmi<NN> 부분이고 앞의 0.36.0 은 djl-serving 버전이라 판단 기준이 아니다. (참고: LMI 27.0.0 = vLLM 0.23.1 로 조건 충족을 ECR 실조회로 확인했다. 그보다 낮은 태그는 배포 전에 번들 버전을 직접 확인하라.) 버전을 직접 고르고 싶으면 vLLM DLC(config/vllm/)를 쓴다.",
+  "_warning": "KV-shared 레이어가 있다(20/35층). 파인튜닝 산출물을 서빙할 때 save_pretrained 가 그 텐서를 빠뜨리면 vLLM 초기화가 실패한다(vLLM issue #44788)."
+}

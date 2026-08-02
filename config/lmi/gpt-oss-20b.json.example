@@ -1,0 +1,20 @@
+{
+  "_engine": "DJL LMI. env 접두사는 OPTION_* 이다 — vLLM DLC(SM_VLLM_*)와 섞이지 않는다.",
+  "_model": "MoE. 이 값들은 실제로 배포해 확인한 조합이다.",
+  "_instance": "권장: ml.g5.12xlarge (TENSOR_PARALLEL_DEGREE=max 가 4장을 다 쓴다)",
+  "HF_MODEL_ID": "openai/gpt-oss-20b",
+  "HF_TOKEN": "",
+  "OPTION_MODEL_LOADING_TIMEOUT": "1500",
+  "SERVING_FAIL_FAST": "true",
+  "OPTION_ASYNC_MODE": "true",
+  "OPTION_ROLLING_BATCH": "disable",
+  "_tp": "'max' 는 인스턴스의 GPU 를 전부 쓴다. 인스턴스를 바꿔도 이 값은 그대로 두면 된다.",
+  "TENSOR_PARALLEL_DEGREE": "max",
+  "OPTION_ENTRYPOINT": "djl_python.lmi_vllm.vllm_async_service",
+  "_optional": "아래는 필요할 때 켜는 값이다(현재 미설정 = 컨테이너 기본값).",
+  "_OPTION_MAX_MODEL_LEN": "최대 컨텍스트 길이",
+  "_OPTION_GPU_MEMORY_UTILIZATION": "GPU 메모리 사용률 (0.0-1.0). 문자열로 쓴다",
+  "_OPTION_MAX_ROLLING_BATCH_SIZE": "동시 처리 시퀀스 수",
+  "_OPTION_ENABLE_CHUNKED_PREFILL": "chunked prefill",
+  "_OPTION_MAX_NUM_BATCHED_TOKENS": "배치당 최대 토큰"
+}

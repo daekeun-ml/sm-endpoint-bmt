@@ -50,6 +50,7 @@ class SageMakerAutoScaling:
         target_invocations_per_instance: Optional[int] = None,
         target_concurrent_requests_per_model: Optional[int] = None,
         target_concurrent_requests_per_copy: Optional[int] = None,
+        inference_component_name: Optional[str] = None,
         scale_in_cooldown: int = 300,
         scale_out_cooldown: int = 60,
     ) -> Dict:
@@ -62,6 +63,8 @@ class SageMakerAutoScaling:
             target_invocations_per_instance: Target invocations per instance (default: 1000)
             target_concurrent_requests_per_model: Target concurrent requests per model
             target_concurrent_requests_per_copy: Target concurrent requests per copy
+                (requires inference_component_name)
+            inference_component_name: Inference component to scale per copy
             scale_in_cooldown: Cooldown period for scale in (seconds)
             scale_out_cooldown: Cooldown period for scale out (seconds)
         
@@ -105,6 +108,9 @@ class SageMakerAutoScaling:
         
         # Configure scaling policies
         policies_configured = 0
+        # Errors below are caught per policy, so count them - otherwise the final
+        # banner claims success for a run in which every policy call failed.
+        policies_failed = 0
         
         # Policy 1: InvocationsPerInstance
         if target_invocations_per_instance is not None:
@@ -139,6 +145,7 @@ class SageMakerAutoScaling:
                 policies_configured += 1
             except Exception as e:
                 print(f"⚠️ Error creating policy: {e}")
+                policies_failed += 1
             print()
         
         # Policy 2: ConcurrentRequestsPerModel (High-Resolution Predefined Metric)
@@ -174,26 +181,53 @@ class SageMakerAutoScaling:
                 policies_configured += 1
             except Exception as e:
                 print(f"⚠️ Error creating policy: {e}")
+                policies_failed += 1
             print()
         
         # Policy 3: ConcurrentRequestsPerCopy (High-Resolution Predefined Metric)
+        #
+        # Per-copy scaling is an INFERENCE COMPONENT concept, not a variant one.
+        # The only valid predefined metric name is
+        # SageMakerInferenceComponentConcurrentRequestsPerCopyHighResolution, and it
+        # requires ScalableDimension 'sagemaker:inference-component:DesiredCopyCount'
+        # with ResourceId 'inference-component/<name>' - not the variant pair used by
+        # the other two policies. Without an inference component there is nothing to
+        # scale per copy, so fail loudly instead of sending an invalid metric name.
         if target_concurrent_requests_per_copy is not None:
-            policy_name = f"{self.endpoint_name}-concurrent-requests-per-copy"
+            if not inference_component_name:
+                raise ValueError(
+                    "--target-concurrent-requests-per-copy requires "
+                    "--inference-component-name: per-copy scaling applies to a "
+                    "SageMaker inference component (ScalableDimension "
+                    "'sagemaker:inference-component:DesiredCopyCount'), not to an "
+                    "endpoint variant."
+                )
+
+            component_resource_id = f"inference-component/{inference_component_name}"
+            policy_name = f"{inference_component_name}-concurrent-requests-per-copy"
             print(f"Configuring policy: {policy_name}")
             print(f"  Metric: ConcurrentRequestsPerCopy (High-Resolution)")
+            print(f"  Resource ID: {component_resource_id}")
             print(f"  Target: {target_concurrent_requests_per_copy}")
-            
+
             try:
+                self.autoscaling_client.register_scalable_target(
+                    ServiceNamespace='sagemaker',
+                    ResourceId=component_resource_id,
+                    ScalableDimension='sagemaker:inference-component:DesiredCopyCount',
+                    MinCapacity=min_capacity,
+                    MaxCapacity=max_capacity
+                )
                 response = self.autoscaling_client.put_scaling_policy(
                     PolicyName=policy_name,
                     ServiceNamespace='sagemaker',
-                    ResourceId=self.resource_id,
-                    ScalableDimension='sagemaker:variant:DesiredInstanceCount',
+                    ResourceId=component_resource_id,
+                    ScalableDimension='sagemaker:inference-component:DesiredCopyCount',
                     PolicyType='TargetTrackingScaling',
                     TargetTrackingScalingPolicyConfiguration={
                         'TargetValue': float(target_concurrent_requests_per_copy),
                         'PredefinedMetricSpecification': {
-                            'PredefinedMetricType': 'SageMakerVariantConcurrentRequestsPerCopyHighResolution'
+                            'PredefinedMetricType': 'SageMakerInferenceComponentConcurrentRequestsPerCopyHighResolution'
                         },
                         'ScaleInCooldown': scale_in_cooldown,
                         'ScaleOutCooldown': scale_out_cooldown
@@ -209,14 +243,22 @@ class SageMakerAutoScaling:
                 policies_configured += 1
             except Exception as e:
                 print(f"⚠️ Error creating policy: {e}")
+                policies_failed += 1
             print()
         
-        if policies_configured == 0:
+        if policies_configured == 0 and policies_failed == 0:
             print("⚠️ No policies configured. Please specify at least one target metric.")
             print("   Use --target-invocations-per-instance or other target options.")
         
+        results['policies_failed'] = policies_failed
         print("=" * 80)
-        print(f"✅ Auto Scaling Configuration Complete ({policies_configured} policies)")
+        if policies_failed:
+            print(
+                f"⚠️ Auto Scaling Configuration Incomplete "
+                f"({policies_configured} created, {policies_failed} failed)"
+            )
+        else:
+            print(f"✅ Auto Scaling Configuration Complete ({policies_configured} policies)")
         print("=" * 80)
         
         return results
@@ -352,8 +394,9 @@ class SageMakerAutoScaling:
             Dictionary with metric data
         """
         import datetime
-        
-        end_time = datetime.datetime.utcnow()
+
+        # datetime.utcnow() is deprecated in 3.12 and returns a naive datetime.
+        end_time = datetime.datetime.now(datetime.timezone.utc)
         start_time = end_time - datetime.timedelta(minutes=period_minutes)
         
         metrics = {}
@@ -372,8 +415,20 @@ class SageMakerAutoScaling:
         
         for metric_name in metric_names:
             try:
+                # Invocation metrics live in AWS/SageMaker. /aws/sagemaker/Endpoints
+                # holds only instance metrics (CPUUtilization, GPUUtilization, ...),
+                # so querying it here returned "No data available" every time.
+                #
+                # Valid statistics differ per metric: InvocationsPerInstance is
+                # Sum-only, while ConcurrentRequestsPerModel/PerCopy are Min/Max
+                # only - there is no Average to report for them.
+                if metric_name == 'InvocationsPerInstance':
+                    statistics = ['Sum', 'SampleCount']
+                else:
+                    statistics = ['Minimum', 'Maximum']
+
                 response = self.cloudwatch_client.get_metric_statistics(
-                    Namespace='/aws/sagemaker/Endpoints',
+                    Namespace='AWS/SageMaker',
                     MetricName=metric_name,
                     Dimensions=[
                         {'Name': 'EndpointName', 'Value': self.endpoint_name},
@@ -382,7 +437,7 @@ class SageMakerAutoScaling:
                     StartTime=start_time,
                     EndTime=end_time,
                     Period=60,  # 1 minute
-                    Statistics=['Average', 'Maximum', 'Minimum']
+                    Statistics=statistics
                 )
                 
                 datapoints = response['Datapoints']
@@ -390,21 +445,29 @@ class SageMakerAutoScaling:
                     # Sort by timestamp
                     datapoints.sort(key=lambda x: x['Timestamp'])
                     
-                    avg_values = [dp['Average'] for dp in datapoints]
-                    max_values = [dp['Maximum'] for dp in datapoints]
-                    min_values = [dp['Minimum'] for dp in datapoints]
-                    
-                    metrics[metric_name] = {
-                        'average': sum(avg_values) / len(avg_values),
-                        'max': max(max_values),
-                        'min': min(min_values),
-                        'datapoints': len(datapoints)
-                    }
-                    
-                    print(f"{metric_name}:")
-                    print(f"  Average: {metrics[metric_name]['average']:.2f}")
-                    print(f"  Max: {metrics[metric_name]['max']:.2f}")
-                    print(f"  Min: {metrics[metric_name]['min']:.2f}")
+                    if metric_name == 'InvocationsPerInstance':
+                        sums = [dp.get('Sum', 0) for dp in datapoints]
+                        metrics[metric_name] = {
+                            'total': sum(sums),
+                            'max': max(sums),
+                            'min': min(sums),
+                            'datapoints': len(datapoints)
+                        }
+                        print(f"{metric_name}:")
+                        print(f"  Total (Sum): {metrics[metric_name]['total']:.0f}")
+                        print(f"  Max per minute: {metrics[metric_name]['max']:.2f}")
+                        print(f"  Min per minute: {metrics[metric_name]['min']:.2f}")
+                    else:
+                        max_values = [dp.get('Maximum', 0) for dp in datapoints]
+                        min_values = [dp.get('Minimum', 0) for dp in datapoints]
+                        metrics[metric_name] = {
+                            'max': max(max_values),
+                            'min': min(min_values),
+                            'datapoints': len(datapoints)
+                        }
+                        print(f"{metric_name}:")
+                        print(f"  Max: {metrics[metric_name]['max']:.2f}")
+                        print(f"  Min: {metrics[metric_name]['min']:.2f}")
                     print(f"  Data Points: {metrics[metric_name]['datapoints']}")
                 else:
                     print(f"{metric_name}: No data available")
@@ -462,7 +525,16 @@ def main():
     config_parser.add_argument(
         "--target-concurrent-requests-per-copy",
         type=int,
-        help="Target concurrent requests per copy (e.g., 10)"
+        help="Target concurrent requests per copy (e.g., 10). Requires "
+             "--inference-component-name, because per-copy scaling applies to an "
+             "inference component rather than an endpoint variant."
+    )
+    config_parser.add_argument(
+        "--inference-component-name",
+        type=str,
+        default=None,
+        help="Inference component name, required by "
+             "--target-concurrent-requests-per-copy"
     )
     config_parser.add_argument(
         "--scale-in-cooldown",
@@ -552,6 +624,7 @@ def main():
             target_invocations_per_instance=args.target_invocations_per_instance,
             target_concurrent_requests_per_model=args.target_concurrent_requests_per_model,
             target_concurrent_requests_per_copy=args.target_concurrent_requests_per_copy,
+            inference_component_name=args.inference_component_name,
             scale_in_cooldown=args.scale_in_cooldown,
             scale_out_cooldown=args.scale_out_cooldown
         )
@@ -560,7 +633,7 @@ def main():
     elif args.command == 'delete':
         autoscaling.delete_autoscaling()
     elif args.command == 'metrics':
-        a
+        autoscaling.get_cloudwatch_metrics(period_minutes=args.period)
 
 
 if __name__ == "__main__":

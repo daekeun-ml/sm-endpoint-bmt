@@ -384,5 +384,5 @@ LMI v16 includes:
 
 **Container Image:**
 ```
-763104351884.dkr.ecr.us-west-2.amazonaws.com/djl-inference:0.34.0-lmi16.0.0-cu128
+763104351884.dkr.ecr.us-west-2.amazonaws.com/djl-inference:0.36.0-lmi26.0.0-cu130
 ```

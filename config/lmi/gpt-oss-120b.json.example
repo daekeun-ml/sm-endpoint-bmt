@@ -1,0 +1,15 @@
+{
+  "_engine": "DJL LMI. env 접두사는 OPTION_* 이다 — vLLM DLC(SM_VLLM_*)와 섞이지 않는다.",
+  "_model": "MoE 대형. 8-way tensor parallelism 기준이고, 실제로 배포해 확인한 조합이다.",
+  "_instance": "권장: ml.p4d.24xlarge / ml.g6e.48xlarge 등 8-GPU 인스턴스",
+  "HF_MODEL_ID": "openai/gpt-oss-120b",
+  "HF_TOKEN": "",
+  "_timeout": "로딩이 길다. 20b(1500)보다 늘려 둔다.",
+  "OPTION_MODEL_LOADING_TIMEOUT": "2000",
+  "SERVING_FAIL_FAST": "true",
+  "OPTION_ASYNC_MODE": "true",
+  "OPTION_ROLLING_BATCH": "disable",
+  "TENSOR_PARALLEL_DEGREE": "max",
+  "OPTION_ENTRYPOINT": "djl_python.lmi_vllm.vllm_async_service",
+  "GPU_MEMORY_UTILIZATION": "0.95"
+}

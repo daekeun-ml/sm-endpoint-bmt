@@ -8,7 +8,160 @@ import json
 import os
 import time
 import boto3
+from botocore.exceptions import ClientError
 from dotenv import load_dotenv
+
+# Default LMI container. 0.36.0-lmi26.0.0-cu130 is what
+# image_uris.retrieve(framework="djl-lmi", version="latest") resolves to; it ships a
+# far newer vLLM than the old 0.34.0-lmi16.0.0-cu128 default (vLLM 0.10.2).
+# NOTE: LMI v17+ makes async mode the default, so OPTION_ASYNC_MODE /
+# OPTION_ROLLING_BATCH=disable / OPTION_ENTRYPOINT in the config examples become
+# legacy no-ops on this tag.
+DEFAULT_CONTAINER_VERSION = "0.36.0-lmi26.0.0-cu130"
+
+# 독립 vLLM DLC. LMI 와 달리 SM_VLLM_* env 를 읽고, vLLM 을 그대로 최신 버전으로 쓴다.
+# gemma-4 는 vLLM >= 0.19 가 필요해서 구 LMI 로는 로드되지 않는다 — 그래서 별도 경로가 필요하다.
+# 태그는 https://aws.github.io/deep-learning-containers/reference/available_images/ 에서 재확인.
+DEFAULT_VLLM_CONTAINER_VERSION = "0.26.0-gpu-py312-cu130-ubuntu22.04-sagemaker"
+
+
+def _resolve_sagemaker_sdk() -> dict:
+    """
+    Resolve the SageMaker SDK symbols this script needs across v2 and v3.
+
+    v3 removed the entire top-level v2 surface (`sagemaker.Model`,
+    `sagemaker.session.Session`, `sagemaker.get_execution_role`,
+    `sagemaker.utils.name_from_base` all raise ImportError/AttributeError), so the
+    call sites must not name a single layout.
+    """
+    import sagemaker
+
+    resolved: dict = {}
+
+    # --- Session / role / naming -------------------------------------------
+    try:  # v2
+        from sagemaker.session import Session
+        from sagemaker.utils import name_from_base
+
+        resolved["Session"] = Session
+        resolved["get_execution_role"] = sagemaker.get_execution_role
+        resolved["name_from_base"] = name_from_base
+        resolved["version"] = 2
+    except (ImportError, AttributeError):  # v3
+        from sagemaker.core.helper.session_helper import Session, get_execution_role
+        from sagemaker.core.utils import name_from_base
+
+        resolved["Session"] = Session
+        resolved["get_execution_role"] = get_execution_role
+        resolved["name_from_base"] = name_from_base
+        resolved["version"] = 3
+
+    # --- image_uris ---------------------------------------------------------
+    try:
+        from sagemaker import image_uris  # v2
+    except ImportError:
+        try:
+            from sagemaker.core import image_uris  # v3
+        except ImportError:
+            image_uris = None
+    resolved["image_uris"] = image_uris
+
+    # --- Model builder + deploy kwarg name ----------------------------------
+    if resolved["version"] == 2:
+        from sagemaker.model import Model
+
+        def build_model(image_uri, role, env, session, instance_type):
+            return Model(
+                image_uri=image_uri, role=role, env=env, sagemaker_session=session
+            )
+
+        resolved["container_timeout_kwarg"] = (
+            "container_startup_health_check_timeout"
+        )
+    else:
+        from sagemaker.serve import ModelBuilder
+
+        def build_model(image_uri, role, env, session, instance_type):
+            # v3 renamed `env` to `env_vars` and split model creation from deploy.
+            #
+            # 🔴 build() 의 반환값에 deploy() 를 호출하면 안 된다. 단일 모델 경로에서
+            #    build() 는 sagemaker.core.resources.Model 을 돌려주고 그 클래스에는
+            #    deploy 가 없다(deploy 는 ModelBuilder 에만 있다). SDK docstring 의
+            #    용법도 model = mb.build(); endpoint = mb.deploy() 다. 그래서 build()
+            #    는 부수효과로만 쓰고, 배포는 builder 를 통해 한다.
+            builder = ModelBuilder(
+                image_uri=image_uri,
+                env_vars=env,
+                role_arn=role,
+                instance_type=instance_type,
+            )
+            builder.build()
+            return builder
+
+        resolved["container_timeout_kwarg"] = "container_timeout_in_seconds"
+
+    resolved["build_model"] = build_model
+    return resolved
+
+
+def _detect_engine(vllm_config: dict) -> str:
+    """config 의 env 키로 서빙 엔진을 판별한다.
+
+    두 컨테이너는 서로의 env 를 읽지 않는다. LMI 용 OPTION_* 를 vLLM DLC 에 주면 조용히
+    무시되고 기본값으로 뜨므로, 사용자가 --engine 을 잊었을 때 이 판별이 사고를 막는다.
+    """
+    keys = [k for k in vllm_config if not k.startswith("_")]
+    if any(k.startswith("SM_VLLM_") for k in keys):
+        return "vllm"
+    if any(k.startswith("SM_SGLANG_") for k in keys):
+        return "sglang"
+    return "lmi"
+
+
+def _resolve_container_uri(sdk: dict, region: str, container_version: str,
+                           engine: str = "lmi") -> str:
+    """
+    Build the serving container URI for `region`.
+
+    engine="lmi"  -> djl-inference (reads OPTION_* env)
+    engine="vllm" -> vllm          (reads SM_VLLM_* env)
+
+    The two containers are not interchangeable: their env keys differ, and a config written
+    for one will be silently ignored by the other. gemma-4 needs vLLM >= 0.19, which older
+    LMI images do not ship, so the vllm path is not optional for those models.
+
+    Prefer the SDK's registry map, which knows the per-region DLC account id and the
+    correct DNS suffix. Only fall back to the us-* account when the SDK cannot help,
+    and say so, because that fallback is wrong outside the standard partition.
+    """
+    if engine == "vllm":
+        # vLLM DLC 는 SDK 레지스트리에 없다(image_uris.retrieve 가 'vllm' framework 를 모른다).
+        # 그래서 패턴으로 조립한다. 계정 763104351884 는 표준 파티션의 DLC 계정이다.
+        return (f"763104351884.dkr.ecr.{region}.amazonaws.com/"
+                f"vllm:{container_version}")
+
+    image_uris = sdk.get("image_uris")
+    if image_uris is not None:
+        try:
+            # container_version is a full tag ("0.36.0-lmi26.0.0-cu130"); the registry
+            # is keyed by the DJL version prefix.
+            djl_version = container_version.split("-")[0]
+            uri = image_uris.retrieve(
+                framework="djl-lmi", region=region, version=djl_version
+            )
+            # Keep the caller's exact tag rather than the registry's default tag.
+            return f"{uri.split(':')[0]}:{container_version}"
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ image_uris.retrieve failed ({e}); falling back to the "
+                  "standard-partition DLC account")
+
+    print("⚠️ Using the us-* DLC account id, which is incorrect in regions such as "
+          "ap-east-1, cn-*, us-gov-*, il-central-1 and me-central-1. Verify the URI "
+          "or upgrade the SageMaker SDK.")
+    return (
+        f"763104351884.dkr.ecr.{region}.amazonaws.com/"
+        f"djl-inference:{container_version}"
+    )
 
 
 def load_vllm_config(config_file: str) -> dict:
@@ -17,7 +170,7 @@ def load_vllm_config(config_file: str) -> dict:
         raise FileNotFoundError(
             f"vLLM config file not found: {config_file}\n"
             f"Please create a config file in the config/ directory.\n"
-            f"Example: cp config/vllm_config.json.example {config_file}"
+            f"Example: cp config/lmi/gpt-oss-20b.json.example {config_file}"
         )
     
     with open(config_file, 'r') as f:
@@ -36,7 +189,7 @@ def create_endpoint(
     instance_count: int = 1,
     region: str = None,
     sagemaker_role: str = None,
-    container_version: str = "0.34.0-lmi16.0.0-cu128",
+    container_version: str = DEFAULT_CONTAINER_VERSION,
     health_check_timeout: int = 1800,
     wait: bool = True,
 ):
@@ -54,9 +207,15 @@ def create_endpoint(
         health_check_timeout: Health check timeout in seconds
         wait: Wait for endpoint creation to complete
     """
-    # Import sagemaker only when needed for create
-    import sagemaker
-    from sagemaker import Model
+    # Import sagemaker only when needed for create.
+    #
+    # The SDK moved every symbol used here between v2 and v3, so resolve them at
+    # runtime instead of assuming one layout:
+    #   v2: sagemaker.Model / sagemaker.session.Session / sagemaker.get_execution_role
+    #       / sagemaker.utils.name_from_base / sagemaker.image_uris
+    #   v3: sagemaker.serve.ModelBuilder / sagemaker.core.helper.session_helper.*
+    #       / sagemaker.core.utils.name_from_base / sagemaker.core.image_uris
+    sdk = _resolve_sagemaker_sdk()
     
     # Load vLLM configuration
     print("=" * 60)
@@ -73,8 +232,10 @@ def create_endpoint(
     print()
     
     # Initialize SageMaker session
-    sess = sagemaker.session.Session(boto3.Session(region_name=region))
-    region = region or sess.boto_region_name
+    boto_session = boto3.Session(region_name=region)
+    sess = sdk["Session"](boto_session)
+    # Do not rely on an SDK-version-specific attribute for the region.
+    region = region or boto_session.region_name
     
     # Get SageMaker execution role
     if sagemaker_role:
@@ -82,9 +243,12 @@ def create_endpoint(
         print(f"Using provided role: {role}")
     else:
         try:
-            role = sagemaker.get_execution_role()
+            role = sdk["get_execution_role"]()
             print(f"Auto-detected role: {role}")
-        except ValueError:
+        except Exception:
+            # Outside SageMaker this raises ValueError, but a missing/moved SDK
+            # symbol raises AttributeError - catching only ValueError made the
+            # IAM fallback below unreachable.
             # If not running in SageMaker, try to get default role
             iam_client = boto3.client('iam', region_name=region)
             try:
@@ -116,8 +280,16 @@ def create_endpoint(
     print(f"Role: {role}")
     print()
     
-    # Construct container URI
-    container_uri = f'763104351884.dkr.ecr.{region}.amazonaws.com/djl-inference:{container_version}'
+    # Resolve the container URI through the SDK's registry map. The DLC account id
+    # differs per region (ap-east-1, cn-*, us-gov-*, il-central-1, ... all differ) and
+    # China regions need the .amazonaws.com.cn suffix, so hardcoding one account and
+    # suffix produces an invalid URI in roughly 20 regions.
+    engine = _detect_engine(vllm_config)
+    if engine == "vllm" and container_version == DEFAULT_CONTAINER_VERSION:
+        # LMI 태그를 vLLM DLC 에 붙이면 존재하지 않는 이미지가 된다. 엔진에 맞는 기본값으로 바꾼다.
+        container_version = DEFAULT_VLLM_CONTAINER_VERSION
+    print(f"Serving engine: {engine} (detected from config env keys)")
+    container_uri = _resolve_container_uri(sdk, region, container_version, engine=engine)
     print(f"Container URI: {container_uri}")
     
     print("\nvLLM Environment Configuration:")
@@ -128,18 +300,20 @@ def create_endpoint(
             print(f"  {key}: {value}")
     print()
     
-    # Create model
-    model = Model(
+    # Create model. v3 renamed `env` to `env_vars` and replaced Model with
+    # ModelBuilder, so build through the resolved factory.
+    model = sdk["build_model"](
         image_uri=container_uri,
         role=role,
         env=vllm_config,
-        sagemaker_session=sess
+        session=sess,
+        instance_type=instance_type,
     )
     
     # Generate endpoint name if not provided
     if endpoint_name is None or endpoint_name == "":
         model_name = model_id.split('/')[-1]
-        endpoint_name = sagemaker.utils.name_from_base(model_name)
+        endpoint_name = sdk["name_from_base"](model_name)
     
     print(f"Endpoint Name: {endpoint_name}")
     print()
@@ -150,13 +324,17 @@ def create_endpoint(
     print()
     
     try:
-        predictor = model.deploy(
-            initial_instance_count=instance_count,
-            instance_type=instance_type,
-            endpoint_name=endpoint_name,
-            container_startup_health_check_timeout=health_check_timeout,
-            wait=wait
-        )
+        # The container cold-start timeout kwarg was renamed in v3
+        # (container_startup_health_check_timeout -> container_timeout_in_seconds).
+        # Large models need it either way, so pass whichever the SDK accepts.
+        deploy_kwargs = {
+            "initial_instance_count": instance_count,
+            "instance_type": instance_type,
+            "endpoint_name": endpoint_name,
+            "wait": wait,
+            sdk["container_timeout_kwarg"]: health_check_timeout,
+        }
+        predictor = model.deploy(**deploy_kwargs)
         
         if wait:
             print()
@@ -208,29 +386,30 @@ def delete_endpoint(endpoint_name: str, region: str = None):
     print(f"Deleting endpoint: {endpoint_name}")
     print()
     
+    # botocore models NO error shapes for DeleteEndpoint / DeleteEndpointConfig, so
+    # a missing resource arrives as a generic ClientError whose code is not
+    # guaranteed to be ValidationException. Treat any "not there" code as success.
+    not_found_codes = {'ValidationException', 'ResourceNotFound', 'ResourceNotFoundException'}
+
     # Delete endpoint
     try:
         client.delete_endpoint(EndpointName=endpoint_name)
         print(f"✅ Endpoint deleted: {endpoint_name}")
-    except client.exceptions.ClientError as e:
-        if e.response['Error']['Code'] == 'ValidationException':
+    except ClientError as e:
+        if e.response.get('Error', {}).get('Code') in not_found_codes:
             print(f"⚠️ Endpoint not found: {endpoint_name}")
         else:
             print(f"⚠️ Error deleting endpoint: {e}")
-    except Exception as e:
-        print(f"⚠️ Error deleting endpoint: {e}")
     
     # Delete endpoint configuration
     try:
         client.delete_endpoint_config(EndpointConfigName=endpoint_name)
         print(f"✅ Endpoint config deleted: {endpoint_name}")
-    except client.exceptions.ClientError as e:
-        if e.response['Error']['Code'] == 'ValidationException':
+    except ClientError as e:
+        if e.response.get('Error', {}).get('Code') in not_found_codes:
             print(f"⚠️ Endpoint config not found: {endpoint_name}")
         else:
             print(f"⚠️ Error deleting endpoint config: {e}")
-    except Exception as e:
-        print(f"⚠️ Error deleting endpoint config: {e}")
     
     print()
     print("Deletion complete!")
@@ -251,8 +430,10 @@ def main():
     create_parser.add_argument(
         "--vllm-config",
         type=str,
-        default=os.getenv("VLLM_CONFIG_FILE", "config/vllm_config.json"),
-        help="Path to vLLM configuration JSON file (default: from .env or config/vllm_config.json)"
+        default=os.getenv("VLLM_CONFIG_FILE", "config/vllm/gemma-4-E4B.json"),
+        help="Path to serving config JSON. config/vllm/*(SM_VLLM_*) or config/lmi/*(OPTION_*) — "
+             "the engine is detected from the env keys inside "
+             "(default: from .env or config/vllm/gemma-4-E4B.json)"
     )
     create_parser.add_argument(
         "--endpoint-name",
@@ -287,8 +468,8 @@ def main():
     create_parser.add_argument(
         "--container-version",
         type=str,
-        default=os.getenv("CONTAINER_VERSION", "0.34.0-lmi16.0.0-cu128"),
-        help="LMI container version (default: from .env or 0.34.0-lmi16.0.0-cu128)"
+        default=os.getenv("CONTAINER_VERSION", DEFAULT_CONTAINER_VERSION),
+        help=f"LMI container version (default: from .env or {DEFAULT_CONTAINER_VERSION})"
     )
     create_parser.add_argument(
         "--health-check-timeout",

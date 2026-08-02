@@ -1,0 +1,16 @@
+{
+  "_engine": "독립 vLLM DLC. env 접두사는 SM_VLLM_* 이다 — LMI(OPTION_*)와 섞이지 않는다.",
+  "_model": "MoE: total 25.2B / active 3.8B, 128 experts + shared 1. active 가 작아 12B dense 와 비슷한 인스턴스에서 돈다. audio 미지원(vision 만).",
+  "_instance": "권장: ml.g5.12xlarge (create_endpoint.py --instance-type)",
+  "SM_VLLM_MODEL": "google/gemma-4-26B-A4B-it",
+  "SM_VLLM_TENSOR_PARALLEL_SIZE": "4",
+  "SM_VLLM_MAX_MODEL_LEN": "8192",
+  "_max_num_seqs": "🔴 vLLM 기본값 256 은 gemma-4 에서 24GB 카드를 넘긴다. vocab 이 262,144 라 샘플러 버퍼가 256 x 262144 x 4B = 256 MiB 가 되고 그 위에 KV 캐시가 얹힌다. 인스턴스를 키우기 전에 이 값을 먼저 보라.",
+  "SM_VLLM_MAX_NUM_SEQS": "32",
+  "_gpu_mem_util": "🔴 문자열로 쓴다. str(0.90) 은 '0.9' 가 되어 다른 값이 전달된다.",
+  "SM_VLLM_GPU_MEMORY_UTILIZATION": "0.90",
+  "HF_TOKEN": "",
+  "_multimodal": "gemma-4 는 전 사이즈가 멀티모달이다(텍스트 전용 공식 체크포인트가 없다). 텍스트만 쓰려면 아래를 켜 이미지 입력을 차단한다 — 그러면 vLLM 이 image processor 를 찾지 않는다.",
+  "_SM_VLLM_LIMIT_MM_PER_PROMPT": "{\"image\": 0}",
+  "_hf_token": "gemma-4 는 apache-2.0 + ungated 라 비워도 된다. gated 모델에만 필요하다."
+}

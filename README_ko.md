@@ -33,19 +33,34 @@ pip install -r requirements.txt
 
 ## 설정
 
-### 1. vLLM 설정 파일
+### 1. 서빙 설정 파일
 
-`config/` 폴더에서 예시 파일을 복사하여 설정 파일을 만듭니다:
+설정 파일은 `config/<엔진>/` 아래에 있습니다. 예시를 복사해 `.example` 를 떼면 됩니다:
 
 ```bash
-# 20B 모델 설정
-cp config/vllm_config.json.example config/vllm_config.json
+# vLLM DLC (기본)
+cp config/vllm/gemma-4-E4B.json.example config/vllm/gemma-4-E4B.json
 
-# 또는 120B 모델 설정
-cp config/vllm_config_120b.json.example config/vllm_config_120b.json
+# DJL LMI
+cp config/lmi/gpt-oss-20b.json.example config/lmi/gpt-oss-20b.json
 ```
 
-`config/vllm_config.json` 파일 예시:
+두 엔진에 두 모델군을 모두 넣었습니다. gemma-4 는 5종, gpt-oss 는 2종입니다. 전체 목록은
+[Config 폴더 구조](#config-폴더-구조)에 있습니다.
+
+`config/vllm/gemma-4-E4B.json` (`SM_VLLM_*` 키):
+```json
+{
+  "SM_VLLM_MODEL": "google/gemma-4-E4B-it",
+  "SM_VLLM_TENSOR_PARALLEL_SIZE": "1",
+  "SM_VLLM_MAX_MODEL_LEN": "4096",
+  "SM_VLLM_MAX_NUM_SEQS": "32",
+  "SM_VLLM_GPU_MEMORY_UTILIZATION": "0.90",
+  "HF_TOKEN": ""
+}
+```
+
+`config/lmi/gpt-oss-20b.json` (`OPTION_*` 키):
 ```json
 {
   "HF_MODEL_ID": "openai/gpt-oss-20b",
@@ -58,6 +73,10 @@ cp config/vllm_config_120b.json.example config/vllm_config_120b.json
   "OPTION_ENTRYPOINT": "djl_python.lmi_vllm.vllm_async_service"
 }
 ```
+
+`create_endpoint.py` 가 env 키를 읽어 어느 컨테이너를 띄울지 판단하므로 엔진을 명령줄로 넘길 필요가
+없습니다. 예시 파일에는 값의 근거를 `_` 접두 주석 키로 달아 뒀고, 이 키는 컨테이너에 전달되기 전에
+제거됩니다.
 
 ### 2. 환경 변수 설정 (선택사항)
 
@@ -73,7 +92,7 @@ INSTANCE_TYPE=ml.g5.xlarge
 INSTANCE_COUNT=1
 AWS_REGION=us-east-1
 SAGEMAKER_ROLE=arn:aws:iam::YOUR_ACCOUNT:role/service-role/AmazonSageMaker-ExecutionRole-XXXXX
-VLLM_CONFIG_FILE=config/vllm_config.json
+VLLM_CONFIG_FILE=config/vllm/gemma-4-E4B.json
 ```
 
 **SageMaker Role 찾기:**
@@ -91,11 +110,11 @@ aws iam list-roles | grep -i sagemaker
 SageMaker endpoint가 없다면 먼저 생성합니다:
 
 ```bash
-# config/vllm_config.json과 .env 파일의 설정으로 생성
+# config/vllm/gemma-4-E4B.json과 .env 파일의 설정으로 생성
 uv run python create_endpoint.py create
 
 # 다른 vLLM 설정 파일 사용
-uv run python create_endpoint.py create --vllm-config config/vllm_config_120b.json
+uv run python create_endpoint.py create --vllm-config config/lmi/gpt-oss-120b.json
 
 # 인스턴스 타입 오버라이드
 uv run python create_endpoint.py create --instance-type "ml.g6.48xlarge"
@@ -133,32 +152,87 @@ uv run sagemaker_benchmark.py \
 
 ## 주요 기능
 
-- ✅ **vLLM 호환**: vLLM bench serve와 동일한 CLI 인터페이스
-- ✅ **Auto Scaling**: CloudWatch 메트릭 기반 자동 스케일링
-- ✅ **MCP 서버**: Kiro IDE와 통합된 Model Context Protocol 서버
-- ✅ **다양한 데이터셋**: Random, ShareGPT, HuggingFace 데이터셋 지원
-- ✅ **정확한 메트릭**: TTFT, TPOT, ITL 등 상세한 성능 메트릭
-- ✅ **샘플링 파라미터**: Temperature, top-p, top-k, beam search 등
-- ✅ **동시성 제어**: 최대 동시 요청 수 및 요청 속도 제어
+- **`vllm bench serve`와 지표가 같습니다**: 공식·필드명·출력 표를 그대로 맞췄기 때문에 vLLM 실행
+  결과와 나란히 놓고 비교할 수 있습니다. 같은 서버에 같은 부하를 재생해 확인했습니다
+  ([vLLM 대조 검증](#vllm-대조-검증)).
+- **CLI도 같습니다**: `--num-prompts`, `--request-rate`, `--burstiness`, `--max-concurrency`,
+  `--percentile-metrics`, `--metric-percentiles`, `--goodput`, `--ramp-up-strategy`,
+  `--ignore-eos`, `--save-result`와 샘플링 플래그가 vLLM과 동일하게 동작합니다.
+- **SageMaker 전송을 제대로 다룹니다**: 블로킹 boto3 호출을 스레드 executor에서 돌려 이벤트 루프가
+  요청 페이싱을 계속하고, botocore 커넥션 풀을 `--max-concurrency`에 맞춰 늘리며, 재시도를 꺼서
+  조용한 재전송이 중복 집계되지 않게 합니다.
+- **데이터셋**: random(`--random-input-len` / `--random-output-len` / `--random-range-ratio`),
+  ShareGPT, HuggingFace.
+- **엔드포인트 생애주기**: 생성, 스모크 테스트, CloudWatch 지표, Auto Scaling, MCP 서버.
 
-## 출력 메트릭
+## 출력 지표
 
-- **Request throughput**: 초당 요청 처리량
-- **Token throughput**: 초당 토큰 처리량
-- **TTFT (Time to First Token)**: 첫 토큰까지의 시간
-- **TPOT (Time per Output Token)**: 출력 토큰당 시간
-- **ITL (Inter-token Latency)**: 토큰 간 지연 시간
+정의는 vLLM과 동일합니다.
 
-각 메트릭은 평균, 중앙값, P99 값을 제공합니다.
+| 지표 | 정의 |
+|---|---|
+| **TTFT** | 내용이 있는 첫 청크 도착 − 요청 전송 |
+| **TPOT** | `(latency − ttft) / (output_len − 1)`, `output_len ≤ 1`이면 가드 |
+| **ITL** | 연속한 청크 사이의 간격(TTFT는 포함하지 않습니다) |
+| **E2EL** | 요청 전송 → 마지막 청크 |
+| **Request throughput** | 완료 요청 수 / 벤치마크 실측 시간 |
+| **Output throughput** | 총 출력 토큰 / 벤치마크 실측 시간 |
+| **goodput** | `--goodput ttft:…,tpot:…,e2el:…` SLO를 만족한 요청 비율 |
+
+각 지표는 평균·중앙값·표준편차와 `--metric-percentiles`로 지정한 백분위를 함께 냅니다.
+
+vLLM 표에 더해 **SageMaker Specifics** 절이 AWS 경계에서 생기는 것을 보고합니다. `finish_reason=length`로
+잘린 요청 수, EOS로 정상 종료한 수, 컨테이너가 usage 프레임을 보내지 않은 수, 예외별 오류 분포입니다.
+잘림은 오류가 아니라 결과입니다. 잘린 답변을 조용히 성공으로 세면 지연 수치가 틀어집니다.
+
+## vLLM 대조 검증
+
+같은 서버(L40S에서 로컬 vLLM 0.26.0으로 `google/gemma-4-E4B-it` 서빙), 같은 부하
+(`--num-prompts 20 --request-rate 4 --max-concurrency 8`, random 256→128):
+
+| | `vllm bench serve` | 이 도구 | 차이 |
+|---|---|---|---|
+| Total input tokens | 5307 | 5307 | 0.0% |
+| Total generated tokens | 2560 | 2560 | 0.0% |
+| Request throughput (req/s) | 2.76 | 2.78 | 0.6% |
+| Output throughput (tok/s) | 353.78 | 355.95 | 0.6% |
+| Peak concurrent requests | 12 | 12 | 0.0% |
+| Mean TPOT (ms) | 16.15 | 15.88 | 1.6% |
+| Median ITL (ms) | 15.85 | 15.86 | 0.0% |
+| Median TTFT (ms) | 54.84 | 48.22 | 12.1% |
+
+토큰 수가 정확히 일치하는 것이 핵심 검증입니다. 검증용 프록시가 `PayloadPart`를 **7바이트마다 일부러
+쪼개기** 때문에, 각 part를 따로 파싱하는 구현이라면 여기서 토큰이 사라집니다. TTFT 차이는 대조 실행이
+프록시를 한 번 더 거치기 때문입니다.
+
+`--endpoint-url`로 SageMaker Runtime 클라이언트를 로컬 프록시로 향하게 하면 이 대조를 재현할 수 있습니다.
+
+## `vllm bench serve`를 그냥 쓰지 않는 이유
+
+`vllm bench serve`는 OpenAI 호환 서버에 HTTP로 말합니다. SageMaker 엔드포인트는
+`boto3 invoke_endpoint_with_response_stream`으로 접근하고, 그 경계에는 고유한 함정이 있습니다.
+
+- **`PayloadPart` 경계는 SSE 줄 경계와 맞지 않습니다.** JSON 중간에서 끊길 수 있습니다. part마다
+  따로 파싱하면 토큰이 조용히 사라져 이후 모든 지표가 오염되므로, 바이트를 버퍼에 모아 `\n\n`으로
+  자릅니다.
+- **botocore 커넥션 풀 기본값은 10입니다.** 한 클라이언트로 64개를 동시에 보내면 54개가 클라이언트
+  안에서 대기하고, 측정되는 지연은 엔드포인트가 아니라 풀의 것입니다.
+- **`/invocations` 타임아웃은 60초**이고 페이로드 상한은 6 MB입니다. 한 번의 생성이 얼마나 길 수
+  있는지가 여기서 정해집니다.
+- **`messages` 스키마는 `max_tokens`를 씁니다.** `max_new_tokens`는 vLLM이 조용히 무시하므로 길이
+  제한이 아예 적용되지 않습니다.
+- **CloudWatch `ModelLatency`·`OverheadLatency`는 마이크로초입니다.** 밀리초로 다루면 1000배
+  오차입니다.
 
 ## 파일 구조
 
 ```
 .
-├── config/                              # 설정 파일 디렉토리
-│   ├── vllm_config.json.example         # vLLM 설정 예시 (기본)
-│   ├── vllm_config_120b.json.example    # vLLM 설정 예시 (120B)
-│   └── vllm_config.json                 # 실제 vLLM 설정
+├── config/                              # 설정 파일, 서빙 엔진별 폴더
+│   ├── vllm/                            # 독립 vLLM DLC — SM_VLLM_* 키
+│   │   ├── gemma-4-*.json.example       # 5종: E2B, E4B, 12B, 26B-A4B, 31B
+│   │   └── gpt-oss-*.json.example       # 20b, 120b
+│   └── lmi/                             # DJL LMI — OPTION_* 키, 같은 7개 모델
 ├── autoscaling/                         # Auto Scaling 관련 도구
 │   ├── autoscaling.py                   # Auto Scaling 설정 스크립트
 │   └── test_autoscaling.py              # Auto Scaling 테스트 스크립트
@@ -184,7 +258,7 @@ uv run sagemaker_benchmark.py \
 ### Endpoint 생성
 
 ```bash
-# 기본 설정으로 생성 (config/vllm_config.json 사용)
+# 기본 설정으로 생성 (config/vllm/gemma-4-E4B.json 사용)
 uv run python create_endpoint.py create
 
 # SageMaker role 지정 (로컬 환경에서 필요)
@@ -192,7 +266,7 @@ uv run python create_endpoint.py create \
   --sagemaker-role "arn:aws:iam::YOUR_ACCOUNT:role/service-role/AmazonSageMaker-ExecutionRole-XXXXX"
 
 # 다른 vLLM 설정 파일 사용
-uv run python create_endpoint.py create --vllm-config config/vllm_config_120b.json
+uv run python create_endpoint.py create --vllm-config config/lmi/gpt-oss-120b.json
 
 # 인스턴스 설정 오버라이드
 uv run python create_endpoint.py create \
@@ -208,21 +282,25 @@ uv run python create_endpoint.py create --wait true
 
 ### 여러 모델 설정 관리
 
-`config/` 폴더에서 다양한 모델을 위한 설정 파일을 관리할 수 있습니다:
+모델 하나에 엔진별로 설정 파일 하나를 둡니다. 예시를 복사해 `.example` 를 떼고 편집합니다:
 
 ```bash
-# 20B 모델
-cp config/vllm_config.json.example config/vllm_config_20b.json
-nano config/vllm_config_20b.json
+# vLLM DLC 에 gemma-4 E4B
+cp config/vllm/gemma-4-E4B.json.example config/vllm/gemma-4-E4B.json
 
-# 120B 모델
-cp config/vllm_config_120b.json.example config/vllm_config_120b.json
-nano config/vllm_config_120b.json
+# 같은 모델을 LMI 에도 올려 컨테이너를 비교
+cp config/lmi/gemma-4-E4B.json.example config/lmi/gemma-4-E4B.json
+
+# LMI 에 gpt-oss 120B
+cp config/lmi/gpt-oss-120b.json.example config/lmi/gpt-oss-120b.json
 
 # 사용
-uv run python create_endpoint.py create --vllm-config config/vllm_config_20b.json
-uv run python create_endpoint.py create --vllm-config config/vllm_config_120b.json
+uv run python create_endpoint.py create --vllm-config config/vllm/gemma-4-E4B.json
+uv run python create_endpoint.py create --vllm-config config/lmi/gpt-oss-120b.json
 ```
+
+같은 모델의 두 파일은 env 키만 다릅니다. 한쪽을 다른 쪽과 비교하면 지연에서 컨테이너가 차지하는
+몫만 떼어 볼 수 있습니다.
 
 ### Endpoint 삭제
 
@@ -238,20 +316,55 @@ uv run python create_endpoint.py delete --endpoint-name "your-endpoint-name"
 
 1. CLI 인자 (최우선)
 2. `.env` 파일
-3. `config/vllm_config.json` 파일
+3. config 파일 (`--vllm-config`, 기본값 `config/vllm/gemma-4-E4B.json`)
 4. 기본값
 
 ### Config 폴더 구조
 
-`config/` 폴더에 여러 모델 설정을 관리할 수 있습니다:
+서빙 컨테이너별로 폴더를 나눴습니다. 두 컨테이너는 서로 다른 환경변수를 읽고, 상대의 것은 조용히
+무시합니다. LMI 용 설정(`OPTION_*`)을 vLLM DLC 에 주면 실패하지 않고 **기본값으로 뜨기** 때문에,
+폴더로 선택을 드러내 두는 편이 안전합니다.
 
 ```
 config/
-├── vllm_config.json              # 기본 설정
-├── vllm_config_20b.json          # 20B 모델 설정
-├── vllm_config_120b.json         # 120B 모델 설정
-└── vllm_config_custom.json       # 커스텀 설정
+├── vllm/                          # 독립 vLLM DLC — SM_VLLM_* 를 읽습니다
+│   ├── gemma-4-E2B.json.example         effective 2.3B, 단일 GPU
+│   ├── gemma-4-E4B.json.example         effective 4.5B, 단일 L4/L40S — 기본으로 권합니다
+│   ├── gemma-4-12B.json.example         11.95B dense, TP 4
+│   ├── gemma-4-26B-A4B.json.example     MoE, total 25.2B / active 3.8B
+│   ├── gemma-4-31B.json.example         31.27B dense, L40S(44GiB) 필요
+│   ├── gpt-oss-20b.json.example         MoE, TP 4
+│   └── gpt-oss-120b.json.example        MoE, TP 8
+└── lmi/                           # DJL LMI — OPTION_* 를 읽습니다
+    ├── gemma-4-E2B.json.example         (파일 안의 LMI 버전 주의 참고)
+    ├── gemma-4-E4B.json.example
+    ├── gemma-4-12B.json.example
+    ├── gemma-4-26B-A4B.json.example
+    ├── gemma-4-31B.json.example
+    ├── gpt-oss-20b.json.example
+    └── gpt-oss-120b.json.example
 ```
+
+두 모델군을 두 엔진에 모두 넣었습니다. 같은 모델을 어느 컨테이너에서 돌렸을 때 어떻게 다른지
+비교할 수 있습니다. env 키가 서로 다르고(`SM_VLLM_*` vs `OPTION_*`) 한쪽 설정은 다른 쪽이 조용히
+무시하므로 폴더를 나눠 두었습니다.
+
+`create_endpoint.py` 가 설정의 env 키를 보고 엔진을 판별해 맞는 컨테이너 이미지를 고르므로, 엔진을
+따로 지정하지 않아도 됩니다. 예시를 복사해 `.example` 만 떼면 됩니다.
+
+```bash
+cp config/vllm/gemma-4-E4B.json.example config/vllm/gemma-4-E4B.json
+uv run python create_endpoint.py create --vllm-config config/vllm/gemma-4-E4B.json
+```
+
+gemma-4 5종을 모두 넣은 이유는 SageMaker 의 관리형 방식이 이 모델들을 다 지원하지 않기 때문입니다.
+JumpStart 로는 gemma-4 파인튜닝이 아예 안 됩니다. 각 예시에는 값의 근거를 주석으로 달았습니다: `max_num_seqs` 가 vLLM 기본값 256 이 아니라 32 인 이유,
+`gpu_memory_utilization` 을 문자열로 써야 하는 이유, 31B 가 4bit 로도 44 GiB 카드를 요구하는 이유입니다.
+
+LMI 쪽 gemma-4 파일에는 주의가 하나 붙습니다. 번들 vLLM 버전을 정하는 것은 이미지 태그의 `lmi<NN>`
+부분이고, 앞의 `0.36.0` 은 djl-serving 버전이라 판단 기준이 아닙니다. gemma-4 는 vLLM >= 0.19 가
+필요하므로 고정한 태그의 번들 버전을 배포 전에 확인하세요. vLLM DLC 는 태그에 vLLM 버전이 그대로
+드러나서, 이 계열은 `config/vllm/` 로 시작하는 편이 간단합니다.
 
 ## Auto Scaling
 

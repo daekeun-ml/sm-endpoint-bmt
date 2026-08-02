@@ -91,16 +91,19 @@ class AutoScalingTester:
     
     async def send_request(self, prompt: str, max_tokens: int = 100, timeout: int = 60) -> Dict:
         """Send a single inference request with timeout"""
+        # OpenAI /v1/completions schema. The TGI-style
+        # {"inputs", "parameters": {"max_new_tokens"}} body is silently ignored by a
+        # vLLM/LMI OpenAI endpoint, so max_new_tokens never capped the output length
+        # and every load-test request ran to the server default - which makes the
+        # offered load, and therefore the scaling behaviour observed, meaningless.
         payload = {
-            "inputs": prompt,
-            "parameters": {
-                "max_new_tokens": max_tokens,
-                "do_sample": True,
-                "temperature": 0.7
-            }
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "temperature": 0.7
         }
-        
-        start_time = time.time()
+
+        # perf_counter: monotonic, unaffected by NTP steps during a long ramp.
+        start_time = time.perf_counter()
         try:
             # Add timeout to prevent hanging
             response = await asyncio.wait_for(
@@ -114,7 +117,7 @@ class AutoScalingTester:
             )
             
             result = json.loads(response['Body'].read().decode())
-            latency = time.time() - start_time
+            latency = time.perf_counter() - start_time
             
             return {
                 'success': True,
@@ -122,14 +125,14 @@ class AutoScalingTester:
                 'result': result
             }
         except asyncio.TimeoutError:
-            latency = time.time() - start_time
+            latency = time.perf_counter() - start_time
             return {
                 'success': False,
                 'latency': latency,
                 'error': f'Request timeout after {timeout} seconds'
             }
         except Exception as e:
-            latency = time.time() - start_time
+            latency = time.perf_counter() - start_time
             return {
                 'success': False,
                 'latency': latency,

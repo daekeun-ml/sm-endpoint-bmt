@@ -5,7 +5,7 @@ import json
 import time
 import asyncio
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List
 import boto3
 from fastmcp import FastMCP
@@ -14,15 +14,44 @@ from datasets import load_dataset
 # Initialize MCP server
 mcp = FastMCP("SageMaker Endpoint Tools")
 
+def _session(region=None):
+    """
+    Build an explicit boto3 Session.
+
+    boto3.client() is an alias for the shared DEFAULT session, and the boto3 docs
+    warn that calling it from a concurrent context can cause response ordering
+    issues or SSL interpreter failures. An MCP server serves concurrent tool calls,
+    which is exactly that hazard.
+    """
+    return boto3.session.Session(
+        region_name=region or os.getenv('AWS_REGION', 'us-east-1')
+    )
+
 def get_sagemaker_client(region=None):
     """Get SageMaker client"""
-    region = region or os.getenv('AWS_REGION', 'us-east-1')
-    return boto3.client('sagemaker', region_name=region)
+    return _session(region).client('sagemaker')
 
 def get_cloudwatch_client(region=None):
     """Get CloudWatch client"""
-    region = region or os.getenv('AWS_REGION', 'us-east-1')
-    return boto3.client('cloudwatch', region_name=region)
+    return _session(region).client('cloudwatch')
+
+def get_runtime_client(region=None, max_pool_connections=10):
+    """
+    Get a sagemaker-runtime client sized for the requested concurrency.
+
+    Reusing one client also preserves keep-alive, so measured latency does not
+    include a fresh TLS handshake on every call.
+    """
+    from botocore.config import Config
+
+    return _session(region).client(
+        'sagemaker-runtime',
+        config=Config(
+            max_pool_connections=max(max_pool_connections, 10),
+            retries={'mode': 'standard', 'total_max_attempts': 1},
+            tcp_keepalive=True,
+        ),
+    )
 
 @mcp.tool()
 def test_endpoint(endpoint_name: str, test_payload: str = None, region: str = None) -> Dict[str, Any]:
@@ -39,11 +68,18 @@ def test_endpoint(endpoint_name: str, test_payload: str = None, region: str = No
     """
     try:
         region = region or os.getenv('AWS_REGION', 'us-east-1')
-        runtime = boto3.client('sagemaker-runtime', region_name=region)
+        runtime = get_runtime_client(region)
         
-        # Default test payload if none provided
+        # Default test payload if none provided.
+        # Use the OpenAI /v1/completions schema that the vLLM/LMI container actually
+        # serves. The TGI-style {"inputs", "parameters": {"max_new_tokens"}} body is
+        # silently ignored by a vLLM OpenAI endpoint, so max_new_tokens never caps
+        # the output and the request falls back to the server default length.
         if not test_payload:
-            test_payload = json.dumps({"inputs": "Hello, how are you?"})
+            test_payload = json.dumps({
+                "prompt": "Hello, how are you?",
+                "max_tokens": 100,
+            })
         
         start_time = time.time()
         response = runtime.invoke_endpoint(
@@ -85,7 +121,7 @@ def check_endpoint_metrics(endpoint_name: str, minutes: int = 30, region: str = 
     """
     try:
         cloudwatch = get_cloudwatch_client(region)
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(minutes=minutes)
         
         metrics = {}
@@ -143,7 +179,9 @@ def run_benchmark(endpoint_name: str, num_requests: int = 10, concurrent_request
     """
     try:
         region = region or os.getenv('AWS_REGION', 'us-east-1')
-        runtime = boto3.client('sagemaker-runtime', region_name=region)
+        # The connection pool must be at least as large as the concurrency, or
+        # connections above the default 10 get re-handshaked and discarded.
+        runtime = get_runtime_client(region, max_pool_connections=concurrent_requests)
         
         # Load dataset if specified
         test_inputs = []
@@ -182,46 +220,56 @@ def run_benchmark(endpoint_name: str, num_requests: int = 10, concurrent_request
             test_inputs = ["Test message for benchmarking"] * num_requests
         
         def send_request(input_text):
-            # Create payload with max_new_tokens=100 for output length control
+            # OpenAI /v1/completions schema: max_tokens is the key a vLLM/LMI
+            # container honours. max_new_tokens is TGI-only and is silently dropped.
             payload = json.dumps({
-                "inputs": input_text,
-                "parameters": {
-                    "max_new_tokens": 100,
-                    "temperature": 0.7,
-                    "do_sample": True
-                }
+                "prompt": input_text,
+                "max_tokens": 100,
+                "temperature": 0.7,
             })
-            start_time = time.time()
-            
+            # perf_counter, not time.time: wall clock is NTP-adjustable and a clock
+            # step mid-run would corrupt the latency numbers.
+            start = time.perf_counter()
+
             response = runtime.invoke_endpoint(
                 EndpointName=endpoint_name,
                 ContentType='application/json',
                 Body=payload
             )
-            
-            end_time = time.time()
+
             response_body = response['Body'].read().decode('utf-8')
-            
+            elapsed = time.perf_counter() - start
+
             return {
-                'latency': (end_time - start_time) * 1000,
+                'latency': elapsed * 1000,
                 'success': True,
                 'response_size': len(response_body),
                 'input_length': len(input_text)
             }
-        
-        # Run benchmark
-        start_time = time.time()
-        results = []
-        
-        for i in range(num_requests):
+
+        def send_request_safe(input_text):
             try:
-                input_text = test_inputs[i] if i < len(test_inputs) else test_inputs[0]
-                result = send_request(input_text)
-                results.append(result)
+                return send_request(input_text)
             except Exception as e:
-                results.append({'latency': 0, 'success': False, 'error': str(e)})
-        
-        total_time = time.time() - start_time
+                return {'latency': 0, 'success': False, 'error': str(e)}
+
+        # Run benchmark. concurrent_requests used to be accepted and then ignored -
+        # every request went out sequentially, so requests_per_second was 1/latency
+        # by construction no matter what the caller asked for.
+        start_time = time.perf_counter()
+        inputs = [
+            test_inputs[i] if i < len(test_inputs) else test_inputs[0]
+            for i in range(num_requests)
+        ]
+        if concurrent_requests > 1:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=concurrent_requests) as pool:
+                results = list(pool.map(send_request_safe, inputs))
+        else:
+            results = [send_request_safe(text) for text in inputs]
+
+        total_time = time.perf_counter() - start_time
         
         # Calculate statistics
         successful_requests = [r for r in results if r['success']]
@@ -232,7 +280,17 @@ def run_benchmark(endpoint_name: str, num_requests: int = 10, concurrent_request
             avg_latency = sum(latencies) / len(latencies)
             min_latency = min(latencies)
             max_latency = max(latencies)
-            p95_latency = sorted(latencies)[int(len(latencies) * 0.95)]
+            # min(..., n-1) guards the nearest-rank IndexError when
+            # len(latencies) * 0.95 lands exactly on n. numpy's linear
+            # interpolation (what vllm bench serve uses) is preferred when
+            # available so the number is comparable.
+            try:
+                import numpy as _np
+
+                p95_latency = float(_np.percentile(latencies, 95))
+            except ImportError:
+                idx = min(int(len(latencies) * 0.95), len(latencies) - 1)
+                p95_latency = sorted(latencies)[idx]
             avg_input_length = sum(input_lengths) / len(input_lengths) if input_lengths else 0
         else:
             avg_latency = min_latency = max_latency = p95_latency = avg_input_length = 0
@@ -245,7 +303,12 @@ def run_benchmark(endpoint_name: str, num_requests: int = 10, concurrent_request
             'successful_requests': len(successful_requests),
             'failed_requests': num_requests - len(successful_requests),
             'total_time_seconds': round(total_time, 2),
-            'requests_per_second': round(num_requests / total_time, 2),
+            # Successful requests over the measured window, matching
+            # vllm bench serve's completed/dur_s. Counting failures here would
+            # inflate throughput on a broken endpoint.
+            'requests_per_second': round(len(successful_requests) / total_time, 2)
+            if total_time > 0 else 0,
+            'concurrent_requests': concurrent_requests,
             'latency_stats': {
                 'average_ms': round(avg_latency, 2),
                 'min_ms': round(min_latency, 2),

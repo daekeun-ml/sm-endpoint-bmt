@@ -109,14 +109,20 @@ def test_sagemaker_endpoint(endpoint_name: str, region: str = None, debug: bool 
         print("\n\n" + "="*50)
         print("Test Results:")
         print("="*50)
+        # NOTE: token_count counts SSE CHUNKS, not tokens - a container may bundle
+        # several tokens into one chunk. These numbers are a smoke-test sanity check
+        # and are deliberately labelled per-chunk; they will not match
+        # `sagemaker_benchmark.py` / `vllm bench serve`, which read the server's
+        # usage.completion_tokens.
         print(f"Total time: {total_time:.2f}s")
-        print(f"Tokens generated: {token_count}")
+        print(f"Stream chunks received: {token_count}")
         if first_token_time:
-            print(f"Time to first token: {ttft:.2f}ms")
+            print(f"Time to first chunk (~TTFT): {ttft:.2f}ms")
         if token_count > 1:
-            tpot = ((end_time - first_token_time) / (token_count - 1)) * 1000
-            print(f"Time per output token: {tpot:.2f}ms")
-        print(f"Throughput: {token_count / total_time:.2f} tokens/s")
+            tpoc = ((end_time - first_token_time) / (token_count - 1)) * 1000
+            print(f"Time per output chunk: {tpoc:.2f}ms")
+        print(f"Throughput: {token_count / total_time:.2f} chunks/s")
+        print("(chunk-based; run sagemaker_benchmark.py for token-accurate metrics)")
         print("\n✅ Endpoint test successful!")
         
     except Exception as e:
