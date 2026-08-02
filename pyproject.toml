@@ -1,6 +1,6 @@
 [project]
 name = "sm-endpoint-bmt"
-version = "0.1.0"
+version = "1.0.0"
 description = "A SageMaker endpoint benchmark tool similar to vLLM bench serve."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -18,3 +18,27 @@ dependencies = [
     "tqdm>=4.70.0",
     "transformers>=5.14.1",
 ]
+
+# 🔴 build-system 과 py-modules 가 있어야 `uv add`/`pip install` 로 설치된다. 없으면 프로젝트를
+#    열어 스크립트로 실행하는 것만 되고, 다른 리포에서 라이브러리로 가져다 쓸 수 없다.
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# 플랫 레이아웃(패키지 디렉터리 없이 루트에 .py 가 놓인 구조)이라 모듈을 명시한다.
+# autodetect 에 맡기면 hatchling 이 어느 것이 배포 대상인지 판단하지 못해 빌드가 실패한다.
+# 🔴 packages 와 include 를 함께 쓰면 루트의 .py 가 휠에서 빠진다(실측: sagemaker_benchmark.py
+#    누락). 플랫 모듈은 force-include 로 넣는다 — 목적지 경로를 명시해야 확실히 들어간다.
+[tool.hatch.build.targets.wheel]
+packages = ["autoscaling", "mcp"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"sagemaker_benchmark.py" = "sagemaker_benchmark.py"
+"benchmark_datasets.py" = "benchmark_datasets.py"
+"create_endpoint.py" = "create_endpoint.py"
+"test_endpoint.py" = "test_endpoint.py"
+"check_metrics.py" = "check_metrics.py"
+
+[project.scripts]
+# 설치하면 `sm-bench` 로 부를 수 있다. `python sagemaker_benchmark.py` 와 같은 진입점이다.
+sm-bench = "sagemaker_benchmark:main"
