@@ -45,7 +45,7 @@ cp config/vllm/gemma-4-E4B.json.example config/vllm/gemma-4-E4B.json
 cp config/lmi/gpt-oss-20b.json.example config/lmi/gpt-oss-20b.json
 ```
 
-Both engines carry both model families — gemma-4 in five sizes and gpt-oss in two. See
+Both engines carry both model families: gemma-4 in five sizes and gpt-oss in two. See
 [Config Folder Structure](#config-folder-structure) for the full list.
 
 `config/vllm/gemma-4-E4B.json` (`SM_VLLM_*` keys):
@@ -75,8 +75,8 @@ Both engines carry both model families — gemma-4 in five sizes and gpt-oss in 
 ```
 
 `create_endpoint.py` reads the env keys to decide which container to launch, so you never pass the
-engine on the command line. The example files also carry the reason for each value in `_`-prefixed
-comment keys, which are stripped before the config reaches the container.
+engine on the command line. The `_`-prefixed keys are comments recording why each value is what it
+is; they are stripped before the config reaches the container.
 
 ### 2. Environment Variables (Optional)
 
@@ -184,7 +184,7 @@ Each reports mean, median, std and the percentiles named by `--metric-percentile
 Beyond vLLM's table, a **SageMaker Specifics** section reports what the AWS boundary adds:
 requests truncated at `finish_reason=length`, requests that stopped at EOS, requests where the
 container sent no usage frame, and a per-exception error breakdown. Truncation is a result, not an
-error — a benchmark that silently counts a cut-off answer as a success reports the wrong latency.
+error. A benchmark that silently counts a cut-off answer as a success reports the wrong latency.
 
 ## Verified against vLLM
 
@@ -219,7 +219,7 @@ through `boto3 invoke_endpoint_with_response_stream`, and that boundary has its 
   part on its own silently drops tokens and corrupts every metric downstream, so bytes are buffered
   and split on `\n\n`.
 - **botocore's default connection pool is 10.** Run 64 concurrent requests through one client and 54
-  of them queue inside the client — the latency you measure is the pool's, not the endpoint's.
+  of them queue inside the client, so the latency you measure is the pool's, not the endpoint's.
 - **The `/invocations` timeout is 60s** and the payload cap is 6 MB, which bounds how long a single
   generation can run.
 - **The `messages` schema uses `max_tokens`, not `max_new_tokens`.** vLLM ignores the wrong key
@@ -322,9 +322,9 @@ uv run python create_endpoint.py delete --endpoint-name "your-endpoint-name"
 
 ### Config Folder Structure
 
-Configs are grouped by serving container, because the two containers read different environment
-variables and will silently ignore each other's. A config written for LMI (`OPTION_*`) handed to a
-vLLM DLC starts on defaults rather than failing, so the folder makes the choice explicit.
+Configs are grouped by serving container. The two read different env keys (`SM_VLLM_*` vs
+`OPTION_*`), and handing one container the other's config does not fail: it starts on defaults. The
+folder makes the choice visible instead.
 
 ```
 config/
@@ -346,29 +346,22 @@ config/
     └── gpt-oss-120b.json.example
 ```
 
-Both model families are provided for both engines so the same model can be benchmarked on either
-container and the results compared. The env keys differ (`SM_VLLM_*` vs `OPTION_*`), and a config
-written for one is silently ignored by the other, which is why they live in separate folders.
-
-`create_endpoint.py` detects the engine from the env keys in the config and picks the matching
-container image, so you do not have to name it. Copy an example and drop the `.example` suffix:
+Both families are present under both engines, so the same model can be run on either container and
+the results compared:
 
 ```bash
 cp config/vllm/gemma-4-E4B.json.example config/vllm/gemma-4-E4B.json
 uv run python create_endpoint.py create --vllm-config config/vllm/gemma-4-E4B.json
 ```
 
-All five gemma-4 sizes are covered because SageMaker's managed paths do not cover them all —
-JumpStart cannot fine-tune gemma-4 at all. Each example carries the reason for its values in
-comments: why
-`max_num_seqs` is 32 rather than vLLM's default 256, why `gpu_memory_utilization` has to be a
-string, and why 31B needs a 44 GiB card even at 4-bit.
+Each example carries the reason for its values in comments: why `max_num_seqs` is 32 rather than
+vLLM's default 256, why `gpu_memory_utilization` has to be a string, and why 31B needs a 44 GiB card
+even at 4-bit.
 
-One caveat on the LMI gemma-4 files: the bundled vLLM version comes from the `lmi<NN>` segment of
-the image tag, not the leading `0.36.0` (that is the djl-serving version). gemma-4 needs
-vLLM >= 0.19, so check the bundled version of whichever tag you pin before deploying. The vLLM DLC
-names its vLLM version in the tag directly, which makes `config/vllm/` the easier starting point for
-that family.
+One caveat on the LMI gemma-4 files. The bundled vLLM version comes from the `lmi<NN>` segment of
+the image tag, not the leading `0.36.0`, which is the djl-serving version. gemma-4 needs
+vLLM >= 0.19, so check the bundled version of whichever tag you pin. The vLLM DLC names its version
+in the tag directly, which makes `config/vllm/` the easier start for that family.
 
 ## Auto Scaling
 

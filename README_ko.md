@@ -74,9 +74,8 @@ cp config/lmi/gpt-oss-20b.json.example config/lmi/gpt-oss-20b.json
 }
 ```
 
-`create_endpoint.py` 가 env 키를 읽어 어느 컨테이너를 띄울지 판단하므로 엔진을 명령줄로 넘길 필요가
-없습니다. 예시 파일에는 값의 근거를 `_` 접두 주석 키로 달아 뒀고, 이 키는 컨테이너에 전달되기 전에
-제거됩니다.
+`create_endpoint.py` 가 env 키를 읽어 어느 컨테이너를 띄울지 판단하므로 엔진을 명령줄로 넘길 일은
+없습니다. `_` 로 시작하는 키는 값의 근거를 적어 둔 주석이고, 컨테이너에 전달되기 전에 제거됩니다.
 
 ### 2. 환경 변수 설정 (선택사항)
 
@@ -320,9 +319,8 @@ uv run python create_endpoint.py delete --endpoint-name "your-endpoint-name"
 
 ### Config 폴더 구조
 
-서빙 컨테이너별로 폴더를 나눴습니다. 두 컨테이너는 서로 다른 환경변수를 읽고, 상대의 것은 조용히
-무시합니다. LMI 용 설정(`OPTION_*`)을 vLLM DLC 에 주면 실패하지 않고 **기본값으로 뜨기** 때문에,
-폴더로 선택을 드러내 두는 편이 안전합니다.
+서빙 컨테이너별로 폴더를 나눴습니다. 두 컨테이너는 읽는 env 키가 다르고(`SM_VLLM_*` vs `OPTION_*`),
+한쪽 설정을 다른 쪽에 줘도 실패하지 않고 **기본값으로 뜹니다.** 폴더가 그 선택을 드러냅니다.
 
 ```
 config/
@@ -344,26 +342,20 @@ config/
     └── gpt-oss-120b.json.example
 ```
 
-두 모델군을 두 엔진에 모두 넣었습니다. 같은 모델을 어느 컨테이너에서 돌렸을 때 어떻게 다른지
-비교할 수 있습니다. env 키가 서로 다르고(`SM_VLLM_*` vs `OPTION_*`) 한쪽 설정은 다른 쪽이 조용히
-무시하므로 폴더를 나눠 두었습니다.
-
-`create_endpoint.py` 가 설정의 env 키를 보고 엔진을 판별해 맞는 컨테이너 이미지를 고르므로, 엔진을
-따로 지정하지 않아도 됩니다. 예시를 복사해 `.example` 만 떼면 됩니다.
+두 모델군이 두 엔진에 모두 있으므로, 같은 모델을 어느 컨테이너에서 돌렸을 때 어떻게 다른지 비교할 수
+있습니다.
 
 ```bash
 cp config/vllm/gemma-4-E4B.json.example config/vllm/gemma-4-E4B.json
 uv run python create_endpoint.py create --vllm-config config/vllm/gemma-4-E4B.json
 ```
 
-gemma-4 5종을 모두 넣은 이유는 SageMaker 의 관리형 방식이 이 모델들을 다 지원하지 않기 때문입니다.
-JumpStart 로는 gemma-4 파인튜닝이 아예 안 됩니다. 각 예시에는 값의 근거를 주석으로 달았습니다: `max_num_seqs` 가 vLLM 기본값 256 이 아니라 32 인 이유,
+각 예시에는 값의 근거를 주석으로 달았습니다: `max_num_seqs` 가 vLLM 기본값 256 이 아니라 32 인 이유,
 `gpu_memory_utilization` 을 문자열로 써야 하는 이유, 31B 가 4bit 로도 44 GiB 카드를 요구하는 이유입니다.
 
-LMI 쪽 gemma-4 파일에는 주의가 하나 붙습니다. 번들 vLLM 버전을 정하는 것은 이미지 태그의 `lmi<NN>`
-부분이고, 앞의 `0.36.0` 은 djl-serving 버전이라 판단 기준이 아닙니다. gemma-4 는 vLLM >= 0.19 가
-필요하므로 고정한 태그의 번들 버전을 배포 전에 확인하세요. vLLM DLC 는 태그에 vLLM 버전이 그대로
-드러나서, 이 계열은 `config/vllm/` 로 시작하는 편이 간단합니다.
+LMI 쪽 gemma-4 파일에는 주의가 하나 붙습니다. 번들 vLLM 버전을 정하는 것은 태그의 `lmi<NN>` 부분이고,
+앞의 `0.36.0` 은 djl-serving 버전입니다. gemma-4 는 vLLM >= 0.19 가 필요하니 고정한 태그의 번들 버전을
+확인하세요. vLLM DLC 는 태그에 버전이 그대로 드러나서 이 계열은 `config/vllm/` 로 시작하는 편이 간단합니다.
 
 ## Auto Scaling
 
