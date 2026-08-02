@@ -37,8 +37,11 @@ The package is installable, so another project can benchmark its own endpoints w
 this code:
 
 ```bash
+uv add sm-endpoint-bmt
+pip install sm-endpoint-bmt
+
+# or track the repo directly (unreleased changes)
 uv add "sm-endpoint-bmt @ git+https://github.com/daekeun-ml/sm-endpoint-bmt"
-pip install "sm-endpoint-bmt @ git+https://github.com/daekeun-ml/sm-endpoint-bmt"
 ```
 
 That gives you the `sm-bench` command and importable modules:
@@ -66,7 +69,7 @@ project does not pull in heavy dependencies it never calls:
 | `all` | all three | |
 
 ```bash
-uv add "sm-endpoint-bmt[all] @ git+https://github.com/daekeun-ml/sm-endpoint-bmt"
+uv add "sm-endpoint-bmt[all]"
 ```
 
 ## Configuration

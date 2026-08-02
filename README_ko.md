@@ -36,8 +36,11 @@ pip install -r requirements.txt
 설치 가능한 패키지라서, 다른 프로젝트가 이 코드를 복사해 넣지 않고도 자기 endpoint 를 잴 수 있습니다:
 
 ```bash
+uv add sm-endpoint-bmt
+pip install sm-endpoint-bmt
+
+# 릴리스 전 변경을 쓰려면 리포를 직접 가리킵니다
 uv add "sm-endpoint-bmt @ git+https://github.com/daekeun-ml/sm-endpoint-bmt"
-pip install "sm-endpoint-bmt @ git+https://github.com/daekeun-ml/sm-endpoint-bmt"
 ```
 
 설치하면 `sm-bench` 명령과 import 가능한 모듈이 생깁니다:
@@ -65,7 +68,7 @@ add_cli_args(parser)            # CLI 와 같은 플래그
 | `all` | 위 셋 전부 | |
 
 ```bash
-uv add "sm-endpoint-bmt[all] @ git+https://github.com/daekeun-ml/sm-endpoint-bmt"
+uv add "sm-endpoint-bmt[all]"
 ```
 
 ## 설정

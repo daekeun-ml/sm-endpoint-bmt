@@ -4,6 +4,26 @@ version = "1.0.0"
 description = "A SageMaker endpoint benchmark tool similar to vLLM bench serve."
 readme = "README.md"
 requires-python = ">=3.10"
+# PyPI 배포용 메타데이터. license 는 PEP 639 표기(SPDX 식별자 + 파일 지정)를 쓴다 —
+# 구식 `license = {text = "MIT"}` 는 최신 빌드 백엔드가 경고한다.
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Daekeun Kim", email = "daekeun-ml@users.noreply.github.com" }]
+keywords = ["sagemaker", "benchmark", "llm", "vllm", "inference", "latency", "aws"]
+# 🔴 "License :: OSI Approved ::" classifier 는 넣지 않는다. 위 license = "MIT"(PEP 639
+#    License-Expression)와 중복이고 그쪽이 표준이 됐다.
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Benchmark",
+]
+
 # 벤치마크를 돌리는 데 반드시 필요한 것만 둔다. 나머지는 optional-dependencies 로 뺐다 —
 # 이 패키지를 다른 프로젝트에 add 할 때 쓰지도 않는 무거운 의존성이 함께 끌려오지 않게 한다.
 dependencies = [
@@ -20,6 +40,14 @@ dependencies = [
     "sagemaker>=3.18.0,<4",
     "tqdm>=4.70.0",
 ]
+
+# 🔴 이 테이블은 [project] 의 배열들(dependencies 등) **뒤에** 와야 한다. 앞에 두면 TOML 이
+#    뒤따르는 배열을 이 테이블의 키로 흡수해 빌드가 깨진다
+#    (실측: "URL `dependencies` of field `project.urls` must be a string").
+[project.urls]
+Homepage = "https://github.com/daekeun-ml/sm-endpoint-bmt"
+Repository = "https://github.com/daekeun-ml/sm-endpoint-bmt"
+Issues = "https://github.com/daekeun-ml/sm-endpoint-bmt/issues"
 
 [project.optional-dependencies]
 # --tokenizer 로 토큰 수를 정확히 셀 때. 없으면 서버가 보낸 usage 만 쓰고 경고합니다.
