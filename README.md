@@ -248,7 +248,6 @@ through `boto3 invoke_endpoint_with_response_stream`, and that boundary has its 
 ├── benchmark_datasets.py                # Dataset module
 ├── test_endpoint.py                     # Endpoint test script
 ├── check_metrics.py                     # CloudWatch metrics checker
-├── create_endpoint_tutorial.ipynb       # Endpoint creation tutorial
 ├── pyproject.toml                       # Project configuration (uv)
 ├── requirements.txt                     # Required packages (pip)
 ├── .env.example                         # Environment variables example

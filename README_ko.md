@@ -245,7 +245,6 @@ vLLM 표에 더해 **SageMaker Specifics** 절이 AWS 경계에서 생기는 것
 ├── benchmark_datasets.py                # 데이터셋 모듈
 ├── test_endpoint.py                     # Endpoint 테스트 스크립트
 ├── check_metrics.py                     # CloudWatch 메트릭 체커
-├── create_endpoint_tutorial.ipynb       # Endpoint 생성 튜토리얼
 ├── pyproject.toml                       # 프로젝트 설정 (uv)
 ├── requirements.txt                     # 필요한 패키지 (pip)
 ├── README_ko.md                         # 기본 가이드 (한국어)
