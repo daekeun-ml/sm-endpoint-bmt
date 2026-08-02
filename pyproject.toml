@@ -60,4 +60,7 @@ packages = ["autoscaling"]
 
 [project.scripts]
 # 설치하면 `sm-bench` 로 부를 수 있다. `python sagemaker_benchmark.py` 와 같은 진입점이다.
-sm-bench = "sagemaker_benchmark:main"
+# 🔴 main 이 아니라 cli 를 가리킨다 — main 은 결과 dict 를 돌려주는 라이브러리 함수이고,
+#    console_scripts 는 반환값을 종료 코드로 쓰므로 dict 를 그대로 두면 종료 코드가 어그러진다.
+#    cli 가 completed 를 보고 종료 코드를 정한다.
+sm-bench = "sagemaker_benchmark:cli"

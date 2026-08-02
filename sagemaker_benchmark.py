@@ -1716,7 +1716,15 @@ def save_result(args: argparse.Namespace, result_json: dict[str, Any], label: st
     print(f"Saved result to {file_name}")
 
 
-def main() -> None:
+def main() -> dict[str, Any]:
+    """CLI 진입점. 측정 결과 dict 를 돌려준다.
+
+    🔴 반환값이 있는 이유: 이 모듈은 설치해서 라이브러리로도 쓴다(pipelines/run_benchmark.py).
+       None 을 돌려주면 호출자가 성공·실패를 알 수 없어, 요청이 전부 실패해도 종료 코드 0 을
+       쓰게 된다 — CI 가 그것을 성공으로 읽는다(실측: 4건 전부 ValidationError 인데 exit 0).
+       `completed` / `failed` 는 benchmark() 가 이미 세고 있으니 그대로 올린다.
+       콘솔 스크립트(sm-bench)는 dict 를 무시하므로 CLI 동작은 달라지지 않는다.
+    """
     parser = argparse.ArgumentParser(
         description="SageMaker endpoint benchmark tool with vllm bench serve parity"
     )
@@ -1856,6 +1864,18 @@ def main() -> None:
         result_json = {**result_json, **benchmark_result}
         save_result(args, result_json, label)
 
+    return benchmark_result
+
+
+def cli() -> None:
+    """콘솔 스크립트 진입점(sm-bench). 요청이 하나도 성공하지 않으면 종료 코드 1 을 쓴다.
+
+    표만 찍고 0 을 쓰면 호출한 스크립트가 성공으로 읽는다. main() 은 dict 를 돌려주므로
+    라이브러리 사용자는 직접 판단할 수 있고, CLI 사용자를 위해 여기서 종료 코드로 바꾼다.
+    """
+    if not main().get("completed"):
+        sys.exit(1)
+
 
 if __name__ == "__main__":
-    main()
+    cli()
