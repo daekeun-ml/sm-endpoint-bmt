@@ -3,7 +3,7 @@ name = "sm-endpoint-bmt"
 version = "1.0.0"
 description = "A SageMaker endpoint benchmark tool similar to vLLM bench serve."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 # 벤치마크를 돌리는 데 반드시 필요한 것만 둔다. 나머지는 optional-dependencies 로 뺐다 —
 # 이 패키지를 다른 프로젝트에 add 할 때 쓰지도 않는 무거운 의존성이 함께 끌려오지 않게 한다.
 dependencies = [
